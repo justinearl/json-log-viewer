@@ -14,8 +14,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "logviewer.helloWorld",
-        "title": "Hello World"
+        "command": "logviewer.jsonview",
+        "title": "JSON Log viewer"
       }
     ]
   },

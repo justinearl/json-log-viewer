@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 export function activate(context: vscode.ExtensionContext) {
 
-    let webview = vscode.commands.registerCommand('logviewer.helloWorld', () => {
+    let webview = vscode.commands.registerCommand('logviewer.jsonview', () => {
 
         let panel = vscode.window.createWebviewPanel("webview", "React", vscode.ViewColumn.One, {
             enableScripts: true,
@@ -12,6 +12,11 @@ export function activate(context: vscode.ExtensionContext) {
 		let logsEntry = vscode.window.activeTextEditor?.document?.getText();
         let scriptSrc = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "web", "dist", "index.js"));
         let cssSrc = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "web", "dist", "index.css"));
+
+		panel.webview.postMessage({
+			command: "initialData",
+			data: logsEntry
+		});
 
         panel.webview.html = `
 			<!DOCTYPE html>
@@ -26,11 +31,6 @@ export function activate(context: vscode.ExtensionContext) {
 			</body>
 			</html>
         `;
-
-		panel.webview.postMessage({
-			command: "initialData",
-			data: logsEntry
-		});
     });
 
     context.subscriptions.push(webview);
