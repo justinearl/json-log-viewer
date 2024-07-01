@@ -1,24 +1,46 @@
-import React from 'react';
-import logo from './logo.svg';
+import React, { useEffect, useState } from 'react';
 import './App.css';
+import { LogTable } from './filebeatTableComponents';
+import { LogEntry } from './customTypes';
+
+
+function processLogs(logs: string) {
+  let result: LogEntry[] = []
+
+  logs.split("\n").forEach(line => {
+    try {
+      const testJson = JSON.parse(line)
+      result.push(testJson)
+    } catch {
+      // nothing
+    }
+  })
+  return result
+}
+
 
 function App() {
+  const [logs, setLogs] = useState('')
+
+  useEffect(
+    () => {
+      const handleMessage = (event: MessageEvent) => {
+        const message = event.data
+        console.log(message)
+        setLogs(message.data || "")
+      };
+      window.addEventListener('message', handleMessage)
+
+      return () => {
+        window.removeEventListener("message", handleMessage)
+      }
+    },
+    []
+  )
+
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn Logviewer Test
-        </a>
-      </header>
+          <LogTable content={processLogs(logs)}></LogTable>
     </div>
   );
 }
