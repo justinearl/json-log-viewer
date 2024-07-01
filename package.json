@@ -6,6 +6,10 @@
   "engines": {
     "vscode": "^1.90.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:justinearl/json-log-viewer.git"
+  },
   "categories": [
     "Other"
   ],
