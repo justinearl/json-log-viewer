@@ -3,6 +3,7 @@
   "displayName": "log-viewer",
   "description": "This is use to view filebeat like logs",
   "version": "0.0.1",
+  "publisher": "Earl Guevarra",
   "engines": {
     "vscode": "^1.90.0"
   },

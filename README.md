@@ -14,3 +14,17 @@ Users appreciate release notes as you update your extension.
 
 Initial release of logviewer
 
+## Development
+
+### Bundle React
+
+`npm start`
+
+### Test extension in local
+
+`F5`
+
+### Create a vsix file
+
+`vsce package`
+
