@@ -9,6 +9,5 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
-web/node_modules
-web/public
-web/src
+web/**
+!web/dist
