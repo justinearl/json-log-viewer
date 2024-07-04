@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
 import { LogTable } from './filebeatTableComponents';
 import { LogEntry } from './customTypes';
-import { log } from 'console';
 
 
 function processLogs(logs: string) {
