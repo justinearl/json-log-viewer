@@ -57,6 +57,12 @@ export function panel(context: vscode.ExtensionContext) {
     const document = vscode.window.activeTextEditor?.document.uri.fsPath;
     if (document !== undefined) {
         sendLogsEntry(panelResult.webview, document);
-        setInterval(() => {sendLogsEntry(panelResult.webview, document);}, 1000);
+        const messageSender = setInterval(() => {sendLogsEntry(panelResult.webview, document);}, 1000);
+
+        panelResult.onDidDispose(
+            () => {clearInterval(messageSender);},
+            null,
+            context.subscriptions
+        );
     }
 }
