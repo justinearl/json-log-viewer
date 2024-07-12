@@ -78,18 +78,18 @@ function ToggleButton(props: {text: string, onclickfunc: () => void}) {
     )
 }
 
-function LogTh(props: { header: string, columnRemover: () => void }) {
+function LogTh(props: { header: string, columnRemover: () => void, columnSort: () => void }) {
     return (
         <th className='py-3 px-6 group'>
             <div className="flex">
-                <div className="font-normal text-left text-gray-600">{props.header}</div>
+                <div className="font-normal text-left text-gray-600 cursor-pointer" onDoubleClick={props.columnSort}>{props.header}</div>
                 <ToggleButton text="-" onclickfunc={props.columnRemover}/>
             </div>
         </th>
     )
 }
 
-function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAction<string[]>> }) {
+function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAction<string[]>>, columnSort: (h: string) => void }) {
     function removeColumn(header: string) {
         props.headerFilter(props.headers.filter(e => e !== header))
     }
@@ -97,9 +97,10 @@ function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAct
         <thead className="bg-gray-200">
             <tr>
                 {props.headers.map(header => (
-                    <LogTh 
+                    <LogTh
                         header={header}
-                        columnRemover={() => removeColumn(header)} key={header} 
+                        columnRemover={() => removeColumn(header)} key={header}
+                        columnSort={() => props.columnSort(header)}
                     />
                 ))}
             </tr>
@@ -166,6 +167,7 @@ function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) =>
 export function LogTable(props: {content: LogEntry[]}) {
     const [currentHeaders, setCurrentHeaders] = useState(["level", "message"])
     const [contentFilters, setContentFilters] = useState([] as Filter[])
+    const [reverseContent, setReverse] = useState(false)
 
     function addFilter(filter: Filter) {
         setContentFilters([...contentFilters.filter(f => f.key !== filter.key && f.value !== filter.value), filter])
@@ -175,6 +177,11 @@ export function LogTable(props: {content: LogEntry[]}) {
         setContentFilters(contentFilters.filter(f => f !== filter))
     }
 
+    function columnSort(h: string) {
+        // For a quick implementation just reverse content for now
+        setReverse(!reverseContent)
+    }
+
     function getContentToDisplay() {
         let result: LogEntry[] = []
         props.content.forEach(c => {
@@ -182,7 +189,7 @@ export function LogTable(props: {content: LogEntry[]}) {
                 result.push(c)
             }
         })
-        return result
+        return reverseContent ? result.reverse() : result
     }
 
     return (
@@ -191,7 +198,7 @@ export function LogTable(props: {content: LogEntry[]}) {
                 {contentFilters.map(f => (<FilterComponent key={f.key+f.option+f.value} filter={f} removeFilter={removeFilter}/>))}
             </div>
             <table className='bg-white border border-gray-300 rounded-lg w-screen'>
-                <LogTHead headers={currentHeaders} headerFilter={setCurrentHeaders} />
+                <LogTHead headers={currentHeaders} headerFilter={setCurrentHeaders} columnSort={columnSort}/>
                 <tbody className='text-gray-600 text-sm font-light'>
                     {getContentToDisplay().map(log => (
                         <LogTr 

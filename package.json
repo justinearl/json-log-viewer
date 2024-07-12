@@ -22,7 +22,16 @@
         "command": "logviewer.jsonview",
         "title": "JSON Log viewer"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId == log",
+          "group": "navigation",
+          "command": "logviewer.jsonview"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
