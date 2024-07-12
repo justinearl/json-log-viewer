@@ -78,18 +78,19 @@ function ToggleButton(props: {text: string, onclickfunc: () => void}) {
     )
 }
 
-function LogTh(props: { header: string, columnRemover: () => void, columnSort: () => void }) {
+function LogTh(props: { header: string, columnRemover: () => void, columnSort: () => void, shiftHeaderLeft: () => void }) {
     return (
         <th className='py-3 px-6 group'>
             <div className="flex">
                 <div className="font-normal text-left text-gray-600 cursor-pointer" onDoubleClick={props.columnSort}>{props.header}</div>
                 <ToggleButton text="-" onclickfunc={props.columnRemover}/>
+                <ToggleButton text="←" onclickfunc={props.shiftHeaderLeft}/>
             </div>
         </th>
     )
 }
 
-function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAction<string[]>>, columnSort: (h: string) => void }) {
+function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAction<string[]>>, columnSort: (h: string) => void, shiftHeaderLeft: (h: string) => void }) {
     function removeColumn(header: string) {
         props.headerFilter(props.headers.filter(e => e !== header))
     }
@@ -99,8 +100,10 @@ function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAct
                 {props.headers.map(header => (
                     <LogTh
                         header={header}
-                        columnRemover={() => removeColumn(header)} key={header}
+                        key={header}
+                        columnRemover={() => removeColumn(header)} 
                         columnSort={() => props.columnSort(header)}
+                        shiftHeaderLeft={() => props.shiftHeaderLeft(header)}
                     />
                 ))}
             </tr>
@@ -192,13 +195,35 @@ export function LogTable(props: {content: LogEntry[]}) {
         return reverseContent ? result.reverse() : result
     }
 
+    function shiftHeaderLeft(h: string) {
+        setCurrentHeaders(prevHeaders => {
+            const hIndex = prevHeaders.indexOf(h)
+
+            if (hIndex === 0 || hIndex === -1) {
+                // No need to do anything
+                return prevHeaders
+            }
+
+            const newHeaders = [...prevHeaders]
+            newHeaders[hIndex] = newHeaders[hIndex-1]
+            newHeaders[hIndex - 1] = h
+
+            return newHeaders
+        })
+    }
+
     return (
         <div>
             <div className="flex flex-wrap">
                 {contentFilters.map(f => (<FilterComponent key={f.key+f.option+f.value} filter={f} removeFilter={removeFilter}/>))}
             </div>
             <table className='bg-white border border-gray-300 rounded-lg w-screen'>
-                <LogTHead headers={currentHeaders} headerFilter={setCurrentHeaders} columnSort={columnSort}/>
+                <LogTHead 
+                    headers={currentHeaders}
+                    headerFilter={setCurrentHeaders}
+                    columnSort={columnSort}
+                    shiftHeaderLeft={shiftHeaderLeft}
+                />
                 <tbody className='text-gray-600 text-sm font-light'>
                     {getContentToDisplay().map(log => (
                         <LogTr 
