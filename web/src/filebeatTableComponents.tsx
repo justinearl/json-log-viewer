@@ -191,7 +191,7 @@ export function LogTable(props: {content: LogEntry[]}) {
             <div className="flex flex-wrap">
                 {contentFilters.map(f => (<FilterComponent key={f.key+f.option+f.value} filter={f} removeFilter={removeFilter}/>))}
             </div>
-            <table className='bg-white border border-gray-300 rounded-lg'>
+            <table className='bg-white border border-gray-300 rounded-lg max-w-full'>
                 <LogTHead headers={currentHeaders} headerFilter={setCurrentHeaders} />
                 <tbody className='text-gray-600 text-sm font-light'>
                     {getContentToDisplay().map(log => (
