@@ -113,7 +113,6 @@ function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: 
             <td className="py-3 px-6" colSpan={props.numCol}>
                 <div className="bg-white p-4 rounded-lg">
                     <JsonView 
-                        editable
                         src={props.log}
                         style={{backgroundColor: "white"}}
                         theme="default"
@@ -169,7 +168,7 @@ export function LogTable(props: {content: LogEntry[]}) {
     const [contentFilters, setContentFilters] = useState([] as Filter[])
 
     function addFilter(filter: Filter) {
-        setContentFilters([...contentFilters, filter])
+        setContentFilters([...contentFilters.filter(f => f.key !== filter.key && f.value !== filter.value), filter])
     }
 
     function removeFilter(filter: Filter) {
@@ -191,7 +190,7 @@ export function LogTable(props: {content: LogEntry[]}) {
             <div className="flex flex-wrap">
                 {contentFilters.map(f => (<FilterComponent key={f.key+f.option+f.value} filter={f} removeFilter={removeFilter}/>))}
             </div>
-            <table className='bg-white border border-gray-300 rounded-lg max-w-full'>
+            <table className='bg-white border border-gray-300 rounded-lg w-screen'>
                 <LogTHead headers={currentHeaders} headerFilter={setCurrentHeaders} />
                 <tbody className='text-gray-600 text-sm font-light'>
                     {getContentToDisplay().map(log => (
