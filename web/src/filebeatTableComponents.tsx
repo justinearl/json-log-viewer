@@ -24,18 +24,18 @@ class Filter {
         }
 
         if (this.option === "include") {
-            return content[this.key]  === this.value
+            return content[this.key] === this.value
         }
     }
 }
 
-function FilterComponent(props: {filter: Filter, removeFilter: (f: Filter) => void}) {
+function FilterComponent(props: { filter: Filter, removeFilter: (f: Filter) => void }) {
     return (
         <div>
             <div className="my-1 mr-1 p-1 border border-gray-200 group">
                 <span className="text-red-500">{props.filter.option === "exclude" ? "NOT " : ""}</span>
                 <span>{`"${props.filter.key}": "${props.filter.value}"`}</span>
-                <ToggleButton text="x" onclickfunc={() => props.removeFilter(props.filter)}/>
+                <ToggleButton text="x" onclickfunc={() => props.removeFilter(props.filter)} />
             </div>
         </div>
     )
@@ -44,23 +44,23 @@ function FilterComponent(props: {filter: Filter, removeFilter: (f: Filter) => vo
 function LogTd(props: { text: string, header: string, filterHandler: (x: Filter) => void }) {
     let textColor = ""
     if (props.text.toUpperCase() === "ERROR") {
-        textColor ="text-red-500"
+        textColor = "text-red-500"
     }
     if (props.text.toUpperCase() === "WARNING") {
-        textColor ="text-yellow-500"
+        textColor = "text-yellow-500"
     }
     return (
         <td className='py-2 px-6 border-b border-gray-200 group'>
             <div className="flex">
-                <p className={textColor+" text-wrap"}>
+                <p className={textColor + " text-wrap"}>
                     {props.text}
                 </p>
                 <div className="flex">
                     <div>
-                        <ToggleButton text="-" onclickfunc={() => {props.filterHandler(new Filter(props.header, props.text, 'exclude'))}}/>
+                        <ToggleButton text="-" onclickfunc={() => { props.filterHandler(new Filter(props.header, props.text, 'exclude')) }} />
                     </div>
                     <div>
-                        <ToggleButton text="+" onclickfunc={() => {props.filterHandler(new Filter(props.header, props.text, 'include'))}}/>
+                        <ToggleButton text="+" onclickfunc={() => { props.filterHandler(new Filter(props.header, props.text, 'include')) }} />
                     </div>
                 </div>
             </div>
@@ -68,13 +68,13 @@ function LogTd(props: { text: string, header: string, filterHandler: (x: Filter)
     )
 }
 
-function ToggleButton(props: {text: string, onclickfunc: () => void}) {
-    return(
-            <button
-                className="mx-0.5 px-1 py-0 invisible group-hover:visible rounded text-gray-500 hover:bg-gray-500 hover:text-white"
-                onClick={props.onclickfunc}>
-                {props.text}
-            </button>
+function ToggleButton(props: { text: string, onclickfunc: () => void }) {
+    return (
+        <button
+            className="mx-0.5 px-1 py-0 invisible group-hover:visible rounded text-gray-500 hover:bg-gray-500 hover:text-white"
+            onClick={props.onclickfunc}>
+            {props.text}
+        </button>
     )
 }
 
@@ -83,8 +83,8 @@ function LogTh(props: { header: string, columnRemover: () => void, columnSort: (
         <th className='py-3 px-6 group'>
             <div className="flex">
                 <div className="font-normal text-left text-gray-600 cursor-pointer" onDoubleClick={props.columnSort}>{props.header}</div>
-                <ToggleButton text="-" onclickfunc={props.columnRemover}/>
-                <ToggleButton text="←" onclickfunc={props.shiftHeaderLeft}/>
+                <ToggleButton text="-" onclickfunc={props.columnRemover} />
+                <ToggleButton text="←" onclickfunc={props.shiftHeaderLeft} />
             </div>
         </th>
     )
@@ -101,7 +101,7 @@ function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAct
                     <LogTh
                         header={header}
                         key={header}
-                        columnRemover={() => removeColumn(header)} 
+                        columnRemover={() => removeColumn(header)}
                         columnSort={() => props.columnSort(header)}
                         shiftHeaderLeft={() => props.shiftHeaderLeft(header)}
                     />
@@ -111,26 +111,26 @@ function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAct
     )
 }
 
-function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: string) => void}) {
+function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: string) => void }) {
     return (
         <tr className='border-b border-gray-200 bg-gray-100'>
             <td className="py-3 px-6" colSpan={props.numCol}>
                 <div className="bg-white p-4 rounded-lg">
-                    <JsonView 
+                    <JsonView
                         src={props.log}
-                        style={{backgroundColor: "white"}}
+                        style={{ backgroundColor: "white" }}
                         theme="default"
                         collapsed={false}
                         collapseStringsAfterLength={40}
                         customizeNode={param => {
-                            if (typeof param.node === 'string') {
+                            if (typeof param.node === 'string' || typeof param.node === 'number' || typeof param.node === 'boolean') {
                                 return (
                                     <span className="json-view--string group">
-                                            {param.node}
-                                            <ToggleButton text="+" onclickfunc={() => {props.updateHeader((param.indexOrName?.toString()) ?? "")}}/>
+                                        {param.node}
+                                        <ToggleButton text="+" onclickfunc={() => { props.updateHeader((param.indexOrName?.toString()) ?? "") }} />
                                     </span>
                                 )
-                            } 
+                            }
                         }}
                     />
                 </div>
@@ -139,7 +139,7 @@ function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: 
     )
 }
 
-function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) => void, headerFilter: Dispatch<SetStateAction<string[]>>}) {
+function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) => void, headerFilter: Dispatch<SetStateAction<string[]>> }) {
     const [showDetail, setShowDetail] = useState(false)
 
     function updateHeader(toAdd: string) {
@@ -158,16 +158,16 @@ function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) =>
                         text={props.log[header] ?? "-"}
                         key={header}
                         header={header}
-                        filterHandler={props.filter} 
+                        filterHandler={props.filter}
                     />
                 ))}
             </tr>
-            {showDetail ? <LogTrDetails log={props.log} updateHeader={updateHeader} numCol={props.headers.length}/> : null}
+            {showDetail ? <LogTrDetails log={props.log} updateHeader={updateHeader} numCol={props.headers.length} /> : null}
         </>
     )
 }
 
-export function LogTable(props: {content: LogEntry[]}) {
+export function LogTable(props: { content: LogEntry[] }) {
     const [currentHeaders, setCurrentHeaders] = useState(["level", "message"])
     const [contentFilters, setContentFilters] = useState([] as Filter[])
     const [reverseContent, setReverse] = useState(false)
@@ -185,10 +185,29 @@ export function LogTable(props: {content: LogEntry[]}) {
         setReverse(!reverseContent)
     }
 
+    function flattenMap(nested: LogEntry, prefix: string = ''): LogEntry {
+        let flatMap: LogEntry = {};
+
+        for (const key in nested) {
+            if (nested.hasOwnProperty(key)) {
+                const value = nested[key];
+                const newKey = prefix ? `${prefix}.${key}` : key;
+
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    Object.assign(flatMap, flattenMap(value, newKey));
+                } else {
+                    flatMap[newKey] = value;
+                }
+            }
+        }
+
+        return flatMap;
+    }
+
     function getContentToDisplay() {
         let result: LogEntry[] = []
         props.content.forEach(c => {
-            if (contentFilters.every(f => {return f.isValid(c)})) {
+            if (contentFilters.every(f => { return f.isValid(c) })) {
                 result.push(c)
             }
         })
@@ -205,7 +224,7 @@ export function LogTable(props: {content: LogEntry[]}) {
             }
 
             const newHeaders = [...prevHeaders]
-            newHeaders[hIndex] = newHeaders[hIndex-1]
+            newHeaders[hIndex] = newHeaders[hIndex - 1]
             newHeaders[hIndex - 1] = h
 
             return newHeaders
@@ -215,10 +234,10 @@ export function LogTable(props: {content: LogEntry[]}) {
     return (
         <div>
             <div className="flex flex-wrap">
-                {contentFilters.map(f => (<FilterComponent key={f.key+f.option+f.value} filter={f} removeFilter={removeFilter}/>))}
+                {contentFilters.map(f => (<FilterComponent key={f.key + f.option + f.value} filter={f} removeFilter={removeFilter} />))}
             </div>
             <table className='bg-white border border-gray-300 rounded-lg w-screen'>
-                <LogTHead 
+                <LogTHead
                     headers={currentHeaders}
                     headerFilter={setCurrentHeaders}
                     columnSort={columnSort}
@@ -226,12 +245,12 @@ export function LogTable(props: {content: LogEntry[]}) {
                 />
                 <tbody className='text-gray-600 text-sm font-light'>
                     {getContentToDisplay().map(log => (
-                        <LogTr 
+                        <LogTr
                             headers={currentHeaders}
                             log={log}
                             key={stringify(log)}
                             filter={addFilter}
-                            headerFilter={setCurrentHeaders} 
+                            headerFilter={setCurrentHeaders}
                         />
                     ))}
                 </tbody>
