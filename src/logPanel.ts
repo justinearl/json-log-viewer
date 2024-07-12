@@ -49,7 +49,7 @@ export function panel(context: vscode.ExtensionContext) {
         "webview",
         "Logs",
         vscode.ViewColumn.One,
-        {enableScripts: true, retainContextWhenHidden: true}
+        {enableScripts: true, retainContextWhenHidden: true, enableFindWidget: true}
     );
 
     generateWebviewContent(context, panelResult.webview);
