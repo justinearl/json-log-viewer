@@ -11,3 +11,5 @@ vsc-extension-quickstart.md
 **/.vscode-test.*
 web/**
 !web/dist
+node_modules
+.github
