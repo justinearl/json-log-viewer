@@ -2,7 +2,7 @@
   "name": "logviewer",
   "displayName": "log-viewer",
   "description": "This is use to view filebeat like logs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "justinearl",
   "engines": {
     "vscode": "^1.90.0"
