@@ -4,6 +4,7 @@
   "description": "This is use to view filebeat like logs",
   "version": "1.0.1",
   "publisher": "justinearl",
+  "icon": "assets/images/icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
