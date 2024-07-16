@@ -2,7 +2,7 @@
   "name": "logviewer",
   "displayName": "log-viewer",
   "description": "This is use to view filebeat like logs",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "justinearl",
   "icon": "assets/images/icon.png",
   "engines": {
