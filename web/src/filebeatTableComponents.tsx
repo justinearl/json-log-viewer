@@ -173,7 +173,7 @@ export function LogTable(props: { content: LogEntry[] }) {
     const [reverseContent, setReverse] = useState(false)
 
     function addFilter(filter: Filter) {
-        setContentFilters([...contentFilters.filter(f => f.key !== filter.key && f.value !== filter.value), filter])
+        setContentFilters([...contentFilters.filter(f => !(f.key === filter.key && f.value === filter.value && f.option !== filter.option)), filter])
     }
 
     function removeFilter(filter: Filter) {
