@@ -25,10 +25,6 @@ jobs:
             tag: ${{ github.ref_name }}
             commit: true
             branch_to_push: 'master'
-        - name: Update Change Log
-          run: |
-            ./updateChangeLog > CHANGELOG.md
-            git add CHANGELOG.md && git commit -m "changelog: update changelog" && git push
         - run: |
             npm install -g @vscode/vsce
             npm install
