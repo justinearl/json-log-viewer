@@ -1,0 +1,6 @@
+#!/bin/bash
+
+DOWNLOAD_URL=$(curl -s https://api.github.com/repos/justinearl/json-log-viewer/releases/latest | jq -r '.assets[] | select(.name | endswith("vsix")) | .browser_download_url')
+curl -L -o logviewer-latest.vsix "$DOWNLOAD_URL"
+
+code --install-extension logviewer-latest.vsix
