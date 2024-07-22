@@ -3,6 +3,8 @@
 
 fetch_latest_changes() {
     git fetch origin master
+    git pull
+    git push
 }
 
 
