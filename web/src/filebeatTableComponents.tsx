@@ -1,5 +1,4 @@
 import { Dispatch, SetStateAction, useState } from "react";
-import { stringify } from "querystring";
 import JsonView from "react18-json-view";
 import 'react18-json-view/src/style.css'
 import { LogEntry } from "./customTypes";
@@ -244,11 +243,11 @@ export function LogTable(props: { content: LogEntry[] }) {
                     shiftHeaderLeft={shiftHeaderLeft}
                 />
                 <tbody className='text-gray-600 text-sm font-light'>
-                    {getContentToDisplay().map(log => (
+                    {getContentToDisplay().map((log, index) => (
                         <LogTr
                             headers={currentHeaders}
                             log={log}
-                            key={stringify(log)}
+                            key={index}
                             filter={addFilter}
                             headerFilter={setCurrentHeaders}
                         />
