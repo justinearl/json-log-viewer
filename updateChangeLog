@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Define your repository URL
+repo_url="https://github.com/justinearl/json-log-viewer"
+
+# Get all tags sorted by commit date in reverse order
+tags=$(git tag --sort=-committerdate)
+
+# Function to format commit message with link
+format_commit() {
+    commit_hash=$(echo "$1" | cut -d ' ' -f 1)
+    message=$(echo "$1" | cut -d ' ' -f 2-)
+    if [[ "$message" == bump-version* || "$message" == changelog* ]]; then
+        return
+    fi
+    echo "- $message [[${commit_hash}](${repo_url}/commit/${commit_hash})]"
+}
+
+echo "# Change Log"
+echo ""
+echo "All notable changes to the "logviewer" extension will be documented in this file."
+echo ""
+
+# Loop through each tag in reverse order to create the changelog
+for tag in $tags; do
+    if [ "$tag" == "v1.0.0" ]; then
+        continue  # Skip processing v1.0.0
+    fi
+
+    echo "## [$tag]"
+    # Get the commit hash of the previous tag
+    previous_tag=$(git describe --tags --abbrev=0 ${tag}^)
+
+    # Fetch all commits between the previous tag and the current tag
+    git log --pretty="%h %s" ${previous_tag}..${tag} | while read line; do        
+        format_commit "$line"
+    done
+done

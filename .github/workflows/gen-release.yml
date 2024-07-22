@@ -25,6 +25,10 @@ jobs:
             tag: ${{ github.ref_name }}
             commit: true
             branch_to_push: 'master'
+        - name: Update Change Log
+          run: |
+            ./updateChangeLog > CHANGELOG.md
+            git add CHANGELOG.md && git commit -m "changelog: update changelog" && git push
         - run: |
             npm install -g @vscode/vsce
             npm install
@@ -33,37 +37,6 @@ jobs:
             npm run build
             cd ..
             vsce package
-        - name: Build Changelog
-          id: github_release
-          uses: mikepenz/release-changelog-builder-action@v4
-          with:
-            commitMode: true
-            configurationJson: |
-              {
-                "template": "#{{CHANGELOG}}",
-                "categories": [
-                  {
-                      "title": "## 🚀 Features",
-                      "labels": ["feat", "feature"]
-                  },
-                  {
-                      "title": "## 🐛 Fixes",
-                      "labels": ["fix", "bug"]
-                  },
-                  {
-                      "title": "## 🖍️ Other",
-                      "labels": []
-                  }
-                ],
-                "label_extractor": [
-                  {
-                    "pattern": "^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\\([\\w\\-\\.]+\\))?(!)?: ([\\w ])+([\\s\\S]*)",
-                    "target": "$1"
-                  }
-                ],
-              }
-          env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         - name: Release
           uses: softprops/action-gh-release@v2
           with:
