@@ -2,6 +2,8 @@
 
 All notable changes to the logviewer extension will be documented in this file.
 
+## [v1.0.6]
+- add: changelog build [[d8d4254](https://github.com/justinearl/json-log-viewer/commit/d8d4254)]
 ## [v1.0.5]
 - add: automate tag for release [[7a3e50e](https://github.com/justinearl/json-log-viewer/commit/7a3e50e)]
 ## [v1.0.4]
