@@ -2,6 +2,11 @@
 
 All notable changes to the logviewer extension will be documented in this file.
 
+## [v1.0.9]
+- add: use flatten map [[324659b](https://github.com/justinearl/json-log-viewer/commit/324659b)]
+- add: use reducer for filter [[c5c3b34](https://github.com/justinearl/json-log-viewer/commit/c5c3b34)]
+- add: update gitignore [[9a38b6e](https://github.com/justinearl/json-log-viewer/commit/9a38b6e)]
+- add: use reducer for headers [[dec809e](https://github.com/justinearl/json-log-viewer/commit/dec809e)]
 ## [v1.0.8]
 - fix: fix release scripts [[f447368](https://github.com/justinearl/json-log-viewer/commit/f447368)]
 ## [v1.0.7]
