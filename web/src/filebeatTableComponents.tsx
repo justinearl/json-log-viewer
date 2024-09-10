@@ -1,7 +1,8 @@
-import { Dispatch, SetStateAction, useState } from "react";
+import { Dispatch, useReducer, useState } from "react";
 import JsonView from "react18-json-view";
 import 'react18-json-view/src/style.css'
 import { LogEntry } from "./customTypes";
+import { HeaderAction, HeaderActionKind, headerReducer } from "./headerReducer";
 
 
 type FilterOption = 'exclude' | 'include'
@@ -77,22 +78,20 @@ function ToggleButton(props: { text: string, onclickfunc: () => void }) {
     )
 }
 
-function LogTh(props: { header: string, columnRemover: () => void, columnSort: () => void, shiftHeaderLeft: () => void }) {
+function LogTh(props: { header: string, onDeleteColumn: () => void, columnSort: () => void, shiftHeaderLeft: () => void }) {
     return (
         <th className='py-3 px-6 group'>
             <div className="flex">
                 <div className="font-normal text-left text-gray-600 cursor-pointer" onDoubleClick={props.columnSort}>{props.header}</div>
-                <ToggleButton text="-" onclickfunc={props.columnRemover} />
+                <ToggleButton text="-" onclickfunc={props.onDeleteColumn} />
                 <ToggleButton text="←" onclickfunc={props.shiftHeaderLeft} />
             </div>
         </th>
     )
 }
 
-function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAction<string[]>>, columnSort: (h: string) => void, shiftHeaderLeft: (h: string) => void }) {
-    function removeColumn(header: string) {
-        props.headerFilter(props.headers.filter(e => e !== header))
-    }
+function LogTHead(props: { headers: string[], headerDispatch: Dispatch<HeaderAction>, columnSort: (h: string) => void }) {
+
     return (
         <thead className="bg-gray-200">
             <tr>
@@ -100,9 +99,9 @@ function LogTHead(props: { headers: string[], headerFilter: Dispatch<SetStateAct
                     <LogTh
                         header={header}
                         key={header}
-                        columnRemover={() => removeColumn(header)}
+                        onDeleteColumn={() => props.headerDispatch({header: header, type: HeaderActionKind.DELETE})}
                         columnSort={() => props.columnSort(header)}
-                        shiftHeaderLeft={() => props.shiftHeaderLeft(header)}
+                        shiftHeaderLeft={() => props.headerDispatch({header: header, type: HeaderActionKind.SHIFT_LEFT})}
                     />
                 ))}
             </tr>
@@ -138,15 +137,14 @@ function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: 
     )
 }
 
-function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) => void, headerFilter: Dispatch<SetStateAction<string[]>> }) {
+function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) => void, onToggleColumn: Dispatch<HeaderAction>}) {
     const [showDetail, setShowDetail] = useState(false)
 
     function updateHeader(toAdd: string) {
-        if (props.headers.includes(toAdd)) {
-            props.headerFilter(props.headers.filter(e => e !== toAdd))
-        } else {
-            props.headerFilter([...props.headers, toAdd])
-        }
+        props.onToggleColumn({
+            header: toAdd,
+            type: props.headers.includes(toAdd) ? HeaderActionKind.DELETE : HeaderActionKind.ADD
+        })
     }
 
     return (
@@ -167,7 +165,7 @@ function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) =>
 }
 
 export function LogTable(props: { content: LogEntry[] }) {
-    const [currentHeaders, setCurrentHeaders] = useState(["level", "message"])
+    const [currentHeaders, headerDispatch] = useReducer(headerReducer, ["level", "message"])
     const [contentFilters, setContentFilters] = useState([] as Filter[])
     const [reverseContent, setReverse] = useState(false)
 
@@ -213,23 +211,6 @@ export function LogTable(props: { content: LogEntry[] }) {
         return reverseContent ? result.reverse() : result
     }
 
-    function shiftHeaderLeft(h: string) {
-        setCurrentHeaders(prevHeaders => {
-            const hIndex = prevHeaders.indexOf(h)
-
-            if (hIndex === 0 || hIndex === -1) {
-                // No need to do anything
-                return prevHeaders
-            }
-
-            const newHeaders = [...prevHeaders]
-            newHeaders[hIndex] = newHeaders[hIndex - 1]
-            newHeaders[hIndex - 1] = h
-
-            return newHeaders
-        })
-    }
-
     return (
         <div>
             <div className="flex flex-wrap">
@@ -238,9 +219,8 @@ export function LogTable(props: { content: LogEntry[] }) {
             <table className='bg-white border border-gray-300 rounded-lg w-screen'>
                 <LogTHead
                     headers={currentHeaders}
-                    headerFilter={setCurrentHeaders}
+                    headerDispatch={headerDispatch}
                     columnSort={columnSort}
-                    shiftHeaderLeft={shiftHeaderLeft}
                 />
                 <tbody className='text-gray-600 text-sm font-light'>
                     {getContentToDisplay().map((log, index) => (
@@ -249,7 +229,7 @@ export function LogTable(props: { content: LogEntry[] }) {
                             log={log}
                             key={index}
                             filter={addFilter}
-                            headerFilter={setCurrentHeaders}
+                            onToggleColumn={headerDispatch}
                         />
                     ))}
                 </tbody>
