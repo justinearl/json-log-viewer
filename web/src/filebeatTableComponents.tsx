@@ -3,45 +3,22 @@ import JsonView from "react18-json-view";
 import 'react18-json-view/src/style.css'
 import { LogEntry } from "./customTypes";
 import { HeaderAction, HeaderActionKind, headerReducer } from "./headerReducer";
+import { Filter, FilterAction, FilterActionKind, filterReducer } from "./filter";
 
 
-type FilterOption = 'exclude' | 'include'
-
-class Filter {
-    option: FilterOption
-    key: string
-    value: string
-
-    constructor(key: string, value: string, option: FilterOption = 'exclude') {
-        this.key = key
-        this.value = value
-        this.option = option
-    }
-
-    isValid(content: LogEntry) {
-        if (this.option === "exclude") {
-            return content[this.key] !== this.value
-        }
-
-        if (this.option === "include") {
-            return content[this.key] === this.value
-        }
-    }
-}
-
-function FilterComponent(props: { filter: Filter, removeFilter: (f: Filter) => void }) {
+function FilterComponent(props: { filter: Filter, removeFilter: Dispatch<FilterAction> }) {
     return (
         <div>
             <div className="my-1 mr-1 p-1 border border-gray-200 group">
                 <span className="text-red-500">{props.filter.option === "exclude" ? "NOT " : ""}</span>
                 <span>{`"${props.filter.key}": "${props.filter.value}"`}</span>
-                <ToggleButton text="x" onclickfunc={() => props.removeFilter(props.filter)} />
+                <ToggleButton text="x" onclickfunc={() => props.removeFilter({filter: props.filter, type: FilterActionKind.DELETE})} />
             </div>
         </div>
     )
 }
 
-function LogTd(props: { text: string, header: string, filterHandler: (x: Filter) => void }) {
+function LogTd(props: { text: string, header: string, filterHandler: Dispatch<FilterAction> }) {
     let textColor = ""
     if (props.text.toUpperCase() === "ERROR") {
         textColor = "text-red-500"
@@ -57,10 +34,10 @@ function LogTd(props: { text: string, header: string, filterHandler: (x: Filter)
                 </p>
                 <div className="flex">
                     <div>
-                        <ToggleButton text="-" onclickfunc={() => { props.filterHandler(new Filter(props.header, props.text, 'exclude')) }} />
+                        <ToggleButton text="-" onclickfunc={() => { props.filterHandler({filter: new Filter(props.header, props.text, 'exclude'), type: FilterActionKind.ADD}) }} />
                     </div>
                     <div>
-                        <ToggleButton text="+" onclickfunc={() => { props.filterHandler(new Filter(props.header, props.text, 'include')) }} />
+                        <ToggleButton text="+" onclickfunc={() => { props.filterHandler({filter: new Filter(props.header, props.text, 'include'), type: FilterActionKind.ADD}) }} />
                     </div>
                 </div>
             </div>
@@ -137,7 +114,7 @@ function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: 
     )
 }
 
-function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) => void, onToggleColumn: Dispatch<HeaderAction>}) {
+function LogTr(props: { headers: string[], log: LogEntry, filter: Dispatch<FilterAction>, onToggleColumn: Dispatch<HeaderAction>}) {
     const [showDetail, setShowDetail] = useState(false)
 
     function updateHeader(toAdd: string) {
@@ -166,16 +143,8 @@ function LogTr(props: { headers: string[], log: LogEntry, filter: (x: Filter) =>
 
 export function LogTable(props: { content: LogEntry[] }) {
     const [currentHeaders, headerDispatch] = useReducer(headerReducer, ["level", "message"])
-    const [contentFilters, setContentFilters] = useState([] as Filter[])
+    const [contentFilters, filterDispatch] = useReducer(filterReducer, [] as Filter[])
     const [reverseContent, setReverse] = useState(false)
-
-    function addFilter(filter: Filter) {
-        setContentFilters([...contentFilters.filter(f => !(f.key === filter.key && f.value === filter.value && f.option !== filter.option)), filter])
-    }
-
-    function removeFilter(filter: Filter) {
-        setContentFilters(contentFilters.filter(f => f !== filter))
-    }
 
     function columnSort(h: string) {
         // For a quick implementation just reverse content for now
@@ -214,7 +183,7 @@ export function LogTable(props: { content: LogEntry[] }) {
     return (
         <div>
             <div className="flex flex-wrap">
-                {contentFilters.map(f => (<FilterComponent key={f.key + f.option + f.value} filter={f} removeFilter={removeFilter} />))}
+                {contentFilters.map(f => (<FilterComponent key={f.key + f.option + f.value} filter={f} removeFilter={filterDispatch} />))}
             </div>
             <table className='bg-white border border-gray-300 rounded-lg w-screen'>
                 <LogTHead
@@ -228,7 +197,7 @@ export function LogTable(props: { content: LogEntry[] }) {
                             headers={currentHeaders}
                             log={log}
                             key={index}
-                            filter={addFilter}
+                            filter={filterDispatch}
                             onToggleColumn={headerDispatch}
                         />
                     ))}
