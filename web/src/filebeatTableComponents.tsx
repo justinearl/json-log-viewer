@@ -4,6 +4,7 @@ import 'react18-json-view/src/style.css'
 import { LogEntry } from "./customTypes";
 import { HeaderAction, HeaderActionKind, headerReducer } from "./headerReducer";
 import { Filter, FilterAction, FilterActionKind, filterReducer } from "./filter";
+import { flattenMap } from "./utils";
 
 
 function FilterComponent(props: { filter: Filter, removeFilter: Dispatch<FilterAction> }) {
@@ -151,25 +152,6 @@ export function LogTable(props: { content: LogEntry[] }) {
         setReverse(!reverseContent)
     }
 
-    function flattenMap(nested: LogEntry, prefix: string = ''): LogEntry {
-        let flatMap: LogEntry = {};
-
-        for (const key in nested) {
-            if (nested.hasOwnProperty(key)) {
-                const value = nested[key];
-                const newKey = prefix ? `${prefix}.${key}` : key;
-
-                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                    Object.assign(flatMap, flattenMap(value, newKey));
-                } else {
-                    flatMap[newKey] = value;
-                }
-            }
-        }
-
-        return flatMap;
-    }
-
     function getContentToDisplay() {
         let result: LogEntry[] = []
         props.content.forEach(c => {
@@ -192,11 +174,11 @@ export function LogTable(props: { content: LogEntry[] }) {
                     columnSort={columnSort}
                 />
                 <tbody className='text-gray-600 text-sm font-light'>
-                    {getContentToDisplay().map((log, index) => (
+                    {getContentToDisplay().map((log) => (
                         <LogTr
                             headers={currentHeaders}
                             log={log}
-                            key={index}
+                            key={JSON.stringify(log)}
                             filter={filterDispatch}
                             onToggleColumn={headerDispatch}
                         />

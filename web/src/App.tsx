@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LogTable } from './filebeatTableComponents';
 import { LogEntry } from './customTypes';
+import { flattenMap } from './utils';
 
 
 function processLogs(logs: string) {
@@ -9,7 +10,7 @@ function processLogs(logs: string) {
   logs.split("\n").forEach(line => {
     try {
       const testJson = JSON.parse(line)
-      result.push(testJson)
+      result.push(flattenMap(testJson))
     } catch {
       // nothing
     }
