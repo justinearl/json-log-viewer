@@ -2,6 +2,10 @@
 
 All notable changes to the logviewer extension will be documented in this file.
 
+## [v1.0.8]
+- fix: fix release scripts [[f447368](https://github.com/justinearl/json-log-viewer/commit/f447368)]
+## [v1.0.7]
+- add: changelog builder [[4a8e13c](https://github.com/justinearl/json-log-viewer/commit/4a8e13c)]
 ## [v1.0.6]
 - add: changelog build [[d8d4254](https://github.com/justinearl/json-log-viewer/commit/d8d4254)]
 ## [v1.0.5]
