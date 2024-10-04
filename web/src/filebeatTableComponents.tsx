@@ -4,7 +4,6 @@ import 'react18-json-view/src/style.css'
 import { LogEntry } from "./customTypes";
 import { HeaderAction, HeaderActionKind, headerReducer } from "./headerReducer";
 import { Filter, FilterAction, FilterActionKind, filterReducer } from "./filter";
-import { flattenMap } from "./utils";
 
 
 function FilterComponent(props: { filter: Filter, removeFilter: Dispatch<FilterAction> }) {
@@ -13,7 +12,7 @@ function FilterComponent(props: { filter: Filter, removeFilter: Dispatch<FilterA
             <div className="my-1 mr-1 p-1 border border-gray-200 group">
                 <span className="text-red-500">{props.filter.option === "exclude" ? "NOT " : ""}</span>
                 <span>{`"${props.filter.key}": "${props.filter.value}"`}</span>
-                <ToggleButton text="x" onclickfunc={() => props.removeFilter({filter: props.filter, type: FilterActionKind.DELETE})} />
+                <ToggleButton text="x" onclickfunc={() => props.removeFilter({ filter: props.filter, type: FilterActionKind.DELETE })} />
             </div>
         </div>
     )
@@ -35,10 +34,10 @@ function LogTd(props: { text: string, header: string, filterHandler: Dispatch<Fi
                 </p>
                 <div className="flex">
                     <div>
-                        <ToggleButton text="-" onclickfunc={() => { props.filterHandler({filter: new Filter(props.header, props.text, 'exclude'), type: FilterActionKind.ADD}) }} />
+                        <ToggleButton text="-" onclickfunc={() => { props.filterHandler({ filter: new Filter(props.header, props.text, 'exclude'), type: FilterActionKind.ADD }) }} />
                     </div>
                     <div>
-                        <ToggleButton text="+" onclickfunc={() => { props.filterHandler({filter: new Filter(props.header, props.text, 'include'), type: FilterActionKind.ADD}) }} />
+                        <ToggleButton text="+" onclickfunc={() => { props.filterHandler({ filter: new Filter(props.header, props.text, 'include'), type: FilterActionKind.ADD }) }} />
                     </div>
                 </div>
             </div>
@@ -77,9 +76,9 @@ function LogTHead(props: { headers: string[], headerDispatch: Dispatch<HeaderAct
                     <LogTh
                         header={header}
                         key={header}
-                        onDeleteColumn={() => props.headerDispatch({header: header, type: HeaderActionKind.DELETE})}
+                        onDeleteColumn={() => props.headerDispatch({ header: header, type: HeaderActionKind.DELETE })}
                         columnSort={() => props.columnSort(header)}
-                        shiftHeaderLeft={() => props.headerDispatch({header: header, type: HeaderActionKind.SHIFT_LEFT})}
+                        shiftHeaderLeft={() => props.headerDispatch({ header: header, type: HeaderActionKind.SHIFT_LEFT })}
                     />
                 ))}
             </tr>
@@ -102,8 +101,14 @@ function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: 
                             if (typeof param.node === 'string' || typeof param.node === 'number' || typeof param.node === 'boolean') {
                                 return (
                                     <span className="json-view--string group">
-                                        {param.node}
+                                        {String(param.node)}
                                         <ToggleButton text="+" onclickfunc={() => { props.updateHeader((param.indexOrName?.toString()) ?? "") }} />
+                                    </span>
+                                )
+                            } else if (param.depth != 1) {
+                                return (
+                                    <span className="json-view--string group">
+                                        {JSON.stringify(param.node, null, 2)}
                                     </span>
                                 )
                             }
@@ -115,7 +120,7 @@ function LogTrDetails(props: { log: LogEntry, numCol: number, updateHeader: (s: 
     )
 }
 
-function LogTr(props: { headers: string[], log: LogEntry, filter: Dispatch<FilterAction>, onToggleColumn: Dispatch<HeaderAction>}) {
+function LogTr(props: { headers: string[], log: LogEntry, filter: Dispatch<FilterAction>, onToggleColumn: Dispatch<HeaderAction> }) {
     const [showDetail, setShowDetail] = useState(false)
 
     function updateHeader(toAdd: string) {
@@ -128,14 +133,20 @@ function LogTr(props: { headers: string[], log: LogEntry, filter: Dispatch<Filte
     return (
         <>
             <tr className='hover:bg-gray-100' onDoubleClick={() => setShowDetail(!showDetail)}>
-                {props.headers.map(header => (
-                    <LogTd
-                        text={props.log[header] ?? "-"}
+                {props.headers.map(header => {
+                    let textToDisplay = props.log[header] ?? "-"
+                    if (typeof textToDisplay === "string" || typeof textToDisplay === "number" || typeof textToDisplay === "boolean") {
+                        textToDisplay = String(textToDisplay)
+                    } else {
+                        textToDisplay = JSON.stringify(textToDisplay)
+                    }
+                    return (<LogTd
+                        text={(textToDisplay)}
                         key={header}
                         header={header}
                         filterHandler={props.filter}
-                    />
-                ))}
+                    />)
+                })}
             </tr>
             {showDetail ? <LogTrDetails log={props.log} updateHeader={updateHeader} numCol={props.headers.length} /> : null}
         </>

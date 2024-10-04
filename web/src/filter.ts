@@ -15,11 +15,11 @@ export class Filter {
 
     isValid(content: LogEntry) {
         if (this.option === "exclude") {
-            return content[this.key] !== this.value
+            return String(content[this.key]) !== this.value
         }
 
         if (this.option === "include") {
-            return content[this.key] === this.value
+            return String(content[this.key]) === this.value
         }
     }
 }
