@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { LogTable } from './filebeatTableComponents';
 import { LogEntry } from './customTypes';
 import { flattenMap } from './utils';
@@ -26,7 +26,9 @@ function App() {
     () => {
       const handleMessage = (event: MessageEvent) => {
         const message = event.data
-        setLogs(message.data || "")
+        if (message.command === "initialData") {
+          setLogs(message.data || "")
+        }
       };
       window.addEventListener('message', handleMessage)
 
@@ -37,9 +39,11 @@ function App() {
     []
   )
 
+  const parsedLogs = useMemo(() => processLogs(logs), [logs])
+
   return (
     <div className="App">
-          <LogTable content={processLogs(logs)}></LogTable>
+          <LogTable content={parsedLogs}></LogTable>
     </div>
   );
 }

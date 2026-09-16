@@ -5,7 +5,7 @@ export function flattenMap(nested: LogEntry, prefix: string = ''): LogEntry {
     let flatMap: LogEntry = {};
 
     for (const key in nested) {
-        if (nested.hasOwnProperty(key)) {
+        if (Object.hasOwn(nested, key)) {
             const value = nested[key];
             const newKey = prefix ? `${prefix}.${key}` : key;
 

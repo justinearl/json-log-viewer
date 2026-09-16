@@ -1,6 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
 ./createChangeLog > CHANGELOG.md
 
-git pull
-git add CHANGELOG.md && git commit -m "changelog: update changelog" && git push
+git add CHANGELOG.md
+git commit -m "changelog: update changelog"
+git push origin master
