@@ -41,12 +41,20 @@ describe('headerReducer', () => {
         expect(result).toEqual(['level', 'message']);
     });
 
+    it('sets headers with SET action', () => {
+        const result = headerReducer(['level', 'message'], {
+            type: HeaderActionKind.SET,
+            headers: ['timestamp', 'level', 'message', 'host']
+        });
+        expect(result).toEqual(['timestamp', 'level', 'message', 'host']);
+    });
+
     it('returns current state for unknown action', () => {
         const headers = ['level', 'message'];
         const result = headerReducer(headers, {
+            type: 'UNKNOWN' as any,
             header: 'test',
-            type: 'UNKNOWN' as HeaderActionKind
-        });
+        } as any);
         expect(result).toBe(headers);
     });
 });
