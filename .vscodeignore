@@ -13,3 +13,8 @@ web/**
 !web/dist
 node_modules
 .github
+pushRelease
+updateExt
+createChangeLog
+updateChangeLog
+**/*.test.ts
