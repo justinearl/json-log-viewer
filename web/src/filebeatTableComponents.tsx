@@ -1,4 +1,4 @@
-import { Dispatch, useReducer, useState } from "react";
+import { Dispatch, useMemo, useReducer, useState } from "react";
 import JsonView from "react18-json-view";
 import 'react18-json-view/src/style.css'
 import { LogEntry } from "./customTypes";
@@ -156,27 +156,47 @@ function LogTr(props: { headers: string[], log: LogEntry, filter: Dispatch<Filte
 export function LogTable(props: { content: LogEntry[] }) {
     const [currentHeaders, headerDispatch] = useReducer(headerReducer, ["level", "message"])
     const [contentFilters, filterDispatch] = useReducer(filterReducer, [] as Filter[])
-    const [reverseContent, setReverse] = useState(false)
+    const [sortColumn, setSortColumn] = useState<string | null>(null)
+    const [sortAscending, setSortAscending] = useState(true)
 
     function columnSort(h: string) {
-        // For a quick implementation just reverse content for now
-        setReverse(!reverseContent)
+        if (sortColumn === h) {
+            setSortAscending(!sortAscending)
+        } else {
+            setSortColumn(h)
+            setSortAscending(true)
+        }
     }
 
-    function getContentToDisplay() {
-        let result: LogEntry[] = []
-        props.content.forEach(c => {
-            if (contentFilters.every(f => { return f.isValid(c) })) {
-                result.push(c)
+    const displayContent = useMemo(() => {
+        const filtered = props.content.filter(c =>
+            contentFilters.every(f => f.isValid(c))
+        )
+
+        if (sortColumn === null) {
+            return filtered
+        }
+
+        const sorted = [...filtered].sort((a, b) => {
+            const aVal = a[sortColumn] ?? ""
+            const bVal = b[sortColumn] ?? ""
+            const aStr = String(aVal)
+            const bStr = String(bVal)
+            const aNum = Number(aVal)
+            const bNum = Number(bVal)
+            if (!isNaN(aNum) && !isNaN(bNum)) {
+                return aNum - bNum
             }
+            return aStr.localeCompare(bStr)
         })
-        return reverseContent ? result.reverse() : result
-    }
+
+        return sortAscending ? sorted : sorted.reverse()
+    }, [props.content, contentFilters, sortColumn, sortAscending])
 
     return (
         <div>
             <div className="flex flex-wrap">
-                {contentFilters.map(f => (<FilterComponent key={f.key + f.option + f.value} filter={f} removeFilter={filterDispatch} />))}
+                {contentFilters.map(f => (<FilterComponent key={`${f.key}:${f.option}:${f.value}`} filter={f} removeFilter={filterDispatch} />))}
             </div>
             <table className='bg-white border border-gray-300 rounded-lg w-screen'>
                 <LogTHead
@@ -185,11 +205,11 @@ export function LogTable(props: { content: LogEntry[] }) {
                     columnSort={columnSort}
                 />
                 <tbody className='text-gray-600 text-sm font-light'>
-                    {getContentToDisplay().map((log) => (
+                    {displayContent.map((log, index) => (
                         <LogTr
                             headers={currentHeaders}
                             log={log}
-                            key={JSON.stringify(log)}
+                            key={index}
                             filter={filterDispatch}
                             onToggleColumn={headerDispatch}
                         />

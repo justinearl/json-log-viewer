@@ -13,14 +13,12 @@ export class Filter {
         this.option = option
     }
 
-    isValid(content: LogEntry) {
+    isValid(content: LogEntry): boolean {
         if (this.option === "exclude") {
             return String(content[this.key]) !== this.value
         }
 
-        if (this.option === "include") {
-            return String(content[this.key]) === this.value
-        }
+        return String(content[this.key]) === this.value
     }
 }
 
