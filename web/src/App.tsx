@@ -1,51 +1,54 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LogTable } from './filebeatTableComponents';
-import { LogEntry } from './customTypes';
+import { LogEntry, ProcessedLogs } from './customTypes';
 import { flattenMap } from './utils';
 
+function processLogs(raw: string): ProcessedLogs {
+    const entries: LogEntry[] = [];
+    let skippedLines = 0;
+    const keySet = new Set<string>();
 
-function processLogs(logs: string) {
-  let result: LogEntry[] = []
-
-  logs.split("\n").forEach(line => {
-    try {
-      const testJson = JSON.parse(line)
-      result.push(flattenMap(testJson))
-    } catch {
-      // nothing
+    if (!raw.trim()) {
+        return { entries, skippedLines, allKeys: [] };
     }
-  })
-  return result
+
+    for (const line of raw.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const parsed = JSON.parse(trimmed);
+            const flat = flattenMap(parsed);
+            entries.push(flat);
+            for (const key of Object.keys(flat)) {
+                keySet.add(key);
+            }
+        } catch {
+            skippedLines++;
+        }
+    }
+
+    return { entries, skippedLines, allKeys: Array.from(keySet) };
 }
 
-
 function App() {
-  const [logs, setLogs] = useState('')
+    const [logs, setLogs] = useState('');
+    const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(
-    () => {
-      const handleMessage = (event: MessageEvent) => {
-        const message = event.data
-        if (message.command === "initialData") {
-          setLogs(message.data || "")
-        }
-      };
-      window.addEventListener('message', handleMessage)
+    useEffect(() => {
+        const handleMessage = (event: MessageEvent) => {
+            const message = event.data;
+            if (message.command === 'initialData') {
+                setLogs(message.data || '');
+                setIsLoading(false);
+            }
+        };
+        window.addEventListener('message', handleMessage);
+        return () => window.removeEventListener('message', handleMessage);
+    }, []);
 
-      return () => {
-        window.removeEventListener("message", handleMessage)
-      }
-    },
-    []
-  )
+    const processedLogs = useMemo(() => processLogs(logs), [logs]);
 
-  const parsedLogs = useMemo(() => processLogs(logs), [logs])
-
-  return (
-    <div className="App">
-          <LogTable content={parsedLogs}></LogTable>
-    </div>
-  );
+    return <LogTable data={processedLogs} isLoading={isLoading} />;
 }
 
 export default App;
