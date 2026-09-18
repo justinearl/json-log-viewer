@@ -57,7 +57,7 @@ export function panel(context: vscode.ExtensionContext) {
         return;
     }
 
-    let panelResult = vscode.window.createWebviewPanel(
+    const panelResult = vscode.window.createWebviewPanel(
         "webview",
         "Logs",
         vscode.ViewColumn.One,
