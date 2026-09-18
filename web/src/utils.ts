@@ -59,24 +59,6 @@ export function detectColumns(entries: LogEntry[], maxScan: number = 100): strin
     return result.length > 0 ? result.slice(0, 6) : ["level", "message"];
 }
 
-export function detectTimestampKey(entries: LogEntry[], maxScan: number = 20): string | null {
-    const candidates = ["@timestamp", "timestamp", "time", "date", "datetime", "created_at", "ts"];
-    const scanCount = Math.min(entries.length, maxScan);
-
-    for (const key of candidates) {
-        let matches = 0;
-        for (let i = 0; i < scanCount; i++) {
-            const val = entries[i][key];
-            if (val !== undefined && !isNaN(Date.parse(String(val)))) {
-                matches++;
-            }
-        }
-        if (matches > scanCount * 0.5) return key;
-    }
-
-    return null;
-}
-
 export function copyToClipboard(text: string): void {
     const textarea = document.createElement('textarea');
     textarea.value = text;

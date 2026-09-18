@@ -28,6 +28,7 @@ function generateWebviewContent(context: vscode.ExtensionContext, webView: vscod
         <!DOCTYPE html>
         <html lang="en">
         <head>
+            <meta charset="UTF-8">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webView.cspSource}; script-src 'nonce-${nonce}';">
             <link rel="stylesheet" href="${cssSrc}" />
         </head>

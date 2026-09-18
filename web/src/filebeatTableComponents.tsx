@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import JsonView from "react18-json-view";
-import 'react18-json-view/src/style.css';
-import { TableVirtuoso, Virtuoso } from 'react-virtuoso';
+import { TableVirtuoso } from 'react-virtuoso';
 import { LogEntry, ProcessedLogs } from "./customTypes";
 import { HeaderActionKind, headerReducer } from "./headerReducer";
 import { Filter, FilterActionKind, filterReducer } from "./filter";
-import { copyToClipboard, detectColumns, detectTimestampKey } from "./utils";
-import { matchesSearch, matchesWhere, parseQuery } from "./query";
-import { computeFieldStats, FieldStat } from "./fieldStats";
-import { buildHistogram, describeInterval } from "./histogram";
+import { copyToClipboard, detectColumns } from "./utils";
+import { matchesSearch, parseSearch } from "./search";
 
 const LEVEL_KEYS = ['log.level', 'level', 'severity', 'loglevel'];
-const BUCKET_COUNT = 18;
 
 function getLevelClass(value: string): string {
     switch (value.toUpperCase().trim()) {
@@ -38,21 +33,6 @@ function formatCell(val: unknown): string {
     if (val === undefined || val === null) return "-";
     if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val);
     return JSON.stringify(val);
-}
-
-function pad(n: number, width = 2): string {
-    return String(n).padStart(width, '0');
-}
-
-function formatClock(ms: number, withMillis = true): string {
-    const d = new Date(ms);
-    const base = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    return withMillis ? `${base}.${pad(d.getMilliseconds(), 3)}` : base;
-}
-
-function formatDay(ms: number): string {
-    const d = new Date(ms);
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 /** Splits text on a search term so matches can be wrapped in <mark>. */
@@ -121,49 +101,23 @@ const Icon = {
     ),
 };
 
-/* ------------------------------------------------------------- raw event */
-
-function RawEvent({ entry, term, levelKey }: { entry: LogEntry; term: string; levelKey: string | null }) {
-    const keys = Object.keys(entry);
-    return (
-        <div className="raw">
-            <span className="p">{'{'}</span>
-            {keys.map((key, i) => {
-                const value = entry[key];
-                const bare = typeof value === 'number' || typeof value === 'boolean' || value === null;
-                const text = bare ? String(value) : formatCell(value);
-                const levelClass = key === levelKey ? getLevelClass(text) : '';
-                return (
-                    <span key={key}>
-                        <span className="k">"{highlight(key, term)}"</span>
-                        <span className="p">:</span>
-                        {bare
-                            ? <span className="n">{highlight(text, term)}</span>
-                            : <span className={levelClass || 's'}>"{highlight(text, term)}"</span>}
-                        {i < keys.length - 1 && <span className="p">,</span>}
-                    </span>
-                );
-            })}
-            <span className="p">{'}'}</span>
-        </div>
-    );
-}
-
 /* --------------------------------------------------------------- details */
 
-function EntryDetail({ entry, onCopy, onCollapse, onInclude, onExclude, copied }: {
+function EntryDetail({ entry, columns, copied, onCopy, onCollapse, onInclude, onExclude, onToggleColumn }: {
     entry: LogEntry;
+    columns: string[];
+    copied: boolean;
     onCopy: () => void;
     onCollapse: () => void;
     onInclude: (key: string, value: string) => void;
     onExclude: (key: string, value: string) => void;
-    copied: boolean;
+    onToggleColumn: (key: string) => void;
 }) {
     const keys = Object.keys(entry);
     return (
         <div className="detail" onClick={e => e.stopPropagation()}>
             <div className="detail-head">
-                <span className="section-label">EXPANDED · {keys.length} FIELDS</span>
+                <span className="section-label">ENTRY · {keys.length} FIELDS</span>
                 <span className="spacer" />
                 <button className="btn small" onClick={onCopy}>{copied ? 'Copied' : 'Copy JSON'}</button>
                 <button className="btn small" onClick={onCollapse}>Collapse</button>
@@ -173,8 +127,16 @@ function EntryDetail({ entry, onCopy, onCollapse, onInclude, onExclude, copied }
                     const value = entry[key];
                     const bare = typeof value === 'number' || typeof value === 'boolean';
                     const text = formatCell(value);
+                    const isColumn = columns.includes(key);
                     return [
-                        <span className="k" key={`${key}-k`}>{key}</span>,
+                        <span className="k" key={`${key}-k`}>
+                            {key}
+                            <button
+                                className={isColumn ? 'tweak on' : 'tweak'}
+                                title={isColumn ? 'Remove column' : 'Add as column'}
+                                onClick={() => onToggleColumn(key)}
+                            >col</button>
+                        </span>,
                         <span key={`${key}-v`}>
                             <span className={bare ? 'v num' : 'v'}>{bare ? text : `"${text}"`}</span>
                             <button className="tweak" title="Filter for this value" onClick={() => onInclude(key, text)}>＋</button>
@@ -187,154 +149,7 @@ function EntryDetail({ entry, onCopy, onCollapse, onInclude, onExclude, copied }
     );
 }
 
-/* ------------------------------------------------------------- histogram */
-
-function HistogramChart({ entries, timestampKey, levelKey }: {
-    entries: LogEntry[];
-    timestampKey: string | null;
-    levelKey: string | null;
-}) {
-    const hist = useMemo(
-        () => buildHistogram(entries, timestampKey, levelKey, BUCKET_COUNT),
-        [entries, timestampKey, levelKey]
-    );
-    if (!hist) return null;
-
-    const peak = Math.max(...hist.buckets.map(b => b.total), 1);
-    const totals = hist.buckets.reduce(
-        (acc, b) => ({ error: acc.error + b.error, warn: acc.warn + b.warn, other: acc.other + b.other }),
-        { error: 0, warn: 0, other: 0 }
-    );
-    const ticks = Array.from({ length: 5 }, (_, i) => hist.start + ((hist.end - hist.start) * i) / 4);
-
-    return (
-        <div className="histogram">
-            <div className="histogram-head">
-                <span className="section-label">
-                    EVENTS OVER TIME · {describeInterval(hist.interval).toUpperCase()} BUCKETS
-                </span>
-                <div className="legend">
-                    <span><i style={{ background: 'var(--chart-error)' }} />error {totals.error}</span>
-                    <span><i style={{ background: 'var(--chart-warn)' }} />warn {totals.warn}</span>
-                    <span><i style={{ background: 'var(--chart-other)' }} />other {totals.other}</span>
-                </div>
-            </div>
-            <div className="bars">
-                {hist.buckets.map((bucket, i) => (
-                    <div
-                        className="bar-stack"
-                        key={i}
-                        title={`${formatClock(bucket.start, false)} — ${bucket.total} entries (${bucket.error} error, ${bucket.warn} warn)`}
-                    >
-                        {bucket.error > 0 && <i style={{ height: `${(bucket.error / peak) * 100}%`, background: 'var(--chart-error)' }} />}
-                        {bucket.warn > 0 && <i style={{ height: `${(bucket.warn / peak) * 100}%`, background: 'var(--chart-warn)' }} />}
-                        {bucket.other > 0 && <i style={{ height: `${(bucket.other / peak) * 100}%`, background: 'var(--chart-other)' }} />}
-                    </div>
-                ))}
-            </div>
-            <div className="axis">
-                {ticks.map((tick, i) => <span key={i}>{formatClock(tick, hist.interval < 1000)}</span>)}
-            </div>
-        </div>
-    );
-}
-
-/* --------------------------------------------------------------- sidebar */
-
-function FieldsPanel({ stats, selected, onToggleColumn, onIncludeValue }: {
-    stats: FieldStat[];
-    selected: string[];
-    onToggleColumn: (key: string) => void;
-    onIncludeValue: (key: string, value: string) => void;
-}) {
-    const [filterText, setFilterText] = useState('');
-    const [openField, setOpenField] = useState<string | null>(null);
-
-    const visible = useMemo(() => {
-        const needle = filterText.trim().toLowerCase();
-        return needle ? stats.filter(s => s.key.toLowerCase().includes(needle)) : stats;
-    }, [stats, filterText]);
-
-    const selectedSet = useMemo(() => new Set(selected), [selected]);
-    const chosen = visible.filter(s => selectedSet.has(s.key));
-    const rest = visible.filter(s => !selectedSet.has(s.key));
-
-    const renderRow = (stat: FieldStat, isSelected: boolean) => (
-        <div key={stat.key}>
-            <button
-                className={openField === stat.key ? 'field-row open' : 'field-row'}
-                onClick={() => setOpenField(openField === stat.key ? null : stat.key)}
-            >
-                <span className="type">{stat.type === 'number' ? '#' : stat.type === 'time' ? 't' : 'a'}</span>
-                <span className="name" title={stat.key}>{stat.key}</span>
-                <span className="count">{stat.capped ? '100+' : stat.distinct}</span>
-            </button>
-            {openField === stat.key && (
-                <div className="field-detail">
-                    <div className="caption">
-                        {stat.topValues.length > 0
-                            ? `Top ${stat.topValues.length} value${stat.topValues.length > 1 ? 's' : ''}`
-                            : 'No values in the current results'}
-                    </div>
-                    {stat.topValues.length > 0 && (
-                        <div className="top-values">
-                            {stat.topValues.map(top => (
-                                <div className="top-value" key={top.value}>
-                                    <div className="line">
-                                        <span
-                                            className="val"
-                                            title={`Filter for ${top.value}`}
-                                            onClick={() => onIncludeValue(stat.key, top.value)}
-                                        >
-                                            {top.value === '' ? '(empty)' : top.value}
-                                        </span>
-                                        <span className="pct">{top.percent.toFixed(1)}%</span>
-                                    </div>
-                                    <div className="meter"><i style={{ width: `${top.percent}%` }} /></div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    <div className="actions">
-                        <button className="btn small" onClick={() => onToggleColumn(stat.key)}>
-                            {isSelected ? 'Remove column' : 'Add as column'}
-                        </button>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-
-    return (
-        <aside className="fields">
-            <div className="field">
-                <Icon.search />
-                <input
-                    type="text"
-                    placeholder="Filter field names"
-                    value={filterText}
-                    onChange={e => setFilterText(e.target.value)}
-                />
-            </div>
-
-            {chosen.length > 0 && (
-                <div className="field-group">
-                    <span className="section-label">SELECTED FIELDS · {chosen.length}</span>
-                    {chosen.map(stat => renderRow(stat, true))}
-                </div>
-            )}
-
-            <div className="field-group">
-                <span className="section-label">INTERESTING FIELDS · {rest.length}</span>
-                {rest.map(stat => renderRow(stat, false))}
-            </div>
-        </aside>
-    );
-}
-
 /* ------------------------------------------------------------------ main */
-
-type Tab = 'events' | 'table';
 
 type VirtualItem =
     | { kind: 'row'; entry: LogEntry; idx: number }
@@ -344,23 +159,17 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
     const { entries, skippedLines, allKeys } = data;
     const [currentHeaders, headerDispatch] = useReducer(headerReducer, ["level", "message"]);
     const [contentFilters, filterDispatch] = useReducer(filterReducer, [] as Filter[]);
-    const [tab, setTab] = useState<Tab>('events');
     const [sortColumn, setSortColumn] = useState<string | null>(null);
     const [sortAscending, setSortAscending] = useState(true);
-    const [queryText, setQueryText] = useState('');
+    const [searchText, setSearchText] = useState('');
     const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
     const [focusedRow, setFocusedRow] = useState(-1);
     const [tailMode, setTailMode] = useState(false);
-    const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-    const [timeFrom, setTimeFrom] = useState('');
-    const [timeTo, setTimeTo] = useState('');
     const [columnsDetected, setColumnsDetected] = useState(false);
     const [copyFeedback, setCopyFeedback] = useState<number | null>(null);
 
     const listRef = useRef<any>(null);
-    const resizingRef = useRef<{ header: string; startX: number; startW: number } | null>(null);
 
-    const timestampKey = useMemo(() => detectTimestampKey(entries), [entries]);
     const levelKey = useMemo(() => detectLevelKey(allKeys), [allKeys]);
 
     useEffect(() => {
@@ -370,43 +179,26 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
         }
     }, [entries, columnsDetected]);
 
-    const parsed = useMemo(() => parseQuery(queryText), [queryText]);
-
-    const sortField = parsed.sortField ?? sortColumn;
-    const sortAsc = parsed.sortField ? parsed.sortAscending : sortAscending;
+    const search = useMemo(() => parseSearch(searchText), [searchText]);
 
     const displayContent = useMemo(() => {
-        let result = entries.filter(entry => {
-            if (!contentFilters.every(f => f.isValid(entry))) return false;
-            if (!matchesSearch(entry, parsed.search)) return false;
-            if (!matchesWhere(entry, parsed.where)) return false;
-            if (timestampKey && (timeFrom || timeTo)) {
-                const ts = Date.parse(String(entry[timestampKey]));
-                if (isNaN(ts)) return false;
-                if (timeFrom && ts < new Date(timeFrom).getTime()) return false;
-                if (timeTo && ts > new Date(timeTo).getTime()) return false;
-            }
-            return true;
-        });
+        let result = entries.filter(entry =>
+            contentFilters.every(f => f.isValid(entry)) && matchesSearch(entry, search)
+        );
 
-        if (sortField !== null) {
+        if (sortColumn !== null) {
             result = [...result].sort((a, b) => {
-                const aVal = a[sortField] ?? "";
-                const bVal = b[sortField] ?? "";
+                const aVal = a[sortColumn] ?? "";
+                const bVal = b[sortColumn] ?? "";
                 const aNum = Number(aVal);
                 const bNum = Number(bVal);
-                if (!isNaN(aNum) && !isNaN(bNum)) return sortAsc ? aNum - bNum : bNum - aNum;
+                if (!isNaN(aNum) && !isNaN(bNum)) return sortAscending ? aNum - bNum : bNum - aNum;
                 const cmp = String(aVal).localeCompare(String(bVal));
-                return sortAsc ? cmp : -cmp;
+                return sortAscending ? cmp : -cmp;
             });
         }
         return result;
-    }, [entries, contentFilters, parsed, sortField, sortAsc, timestampKey, timeFrom, timeTo]);
-
-    const fieldStats = useMemo(
-        () => computeFieldStats(displayContent, allKeys, timestampKey),
-        [displayContent, allKeys, timestampKey]
-    );
+    }, [entries, contentFilters, search, sortColumn, sortAscending]);
 
     const virtualItems = useMemo(() => {
         const items: VirtualItem[] = [];
@@ -417,7 +209,7 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
         return items;
     }, [displayContent, expandedRows]);
 
-    const tailTarget = tab === 'events' ? displayContent.length - 1 : virtualItems.length - 1;
+    const tailTarget = virtualItems.length - 1;
     useEffect(() => {
         if (tailMode && tailTarget >= 0) {
             listRef.current?.scrollToIndex({ index: tailTarget, behavior: 'smooth' });
@@ -454,32 +246,6 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
         else { setSortColumn(header); setSortAscending(true); }
     }
 
-    const copyAll = useCallback(() => {
-        copyToClipboard(displayContent.map(entry => JSON.stringify(entry)).join('\n'));
-        setCopyFeedback(-2);
-        setTimeout(() => setCopyFeedback(null), 1500);
-    }, [displayContent]);
-
-    const handleResizeStart = useCallback((header: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        const th = (e.target as HTMLElement).parentElement;
-        const startW = th?.getBoundingClientRect().width ?? 150;
-        resizingRef.current = { header, startX: e.clientX, startW };
-
-        const onMove = (ev: MouseEvent) => {
-            if (!resizingRef.current) return;
-            const w = Math.max(50, resizingRef.current.startW + ev.clientX - resizingRef.current.startX);
-            setColumnWidths(prev => ({ ...prev, [resizingRef.current!.header]: w }));
-        };
-        const onUp = () => {
-            resizingRef.current = null;
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-        };
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-    }, []);
-
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         const tag = (e.target as HTMLElement).tagName;
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -509,11 +275,9 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
 
     useEffect(() => {
         if (focusedRow < 0) return;
-        const index = tab === 'events'
-            ? focusedRow
-            : virtualItems.findIndex(v => v.kind === 'row' && v.idx === focusedRow);
+        const index = virtualItems.findIndex(v => v.kind === 'row' && v.idx === focusedRow);
         if (index >= 0) listRef.current?.scrollToIndex({ index, align: 'center' });
-    }, [focusedRow, virtualItems, tab]);
+    }, [focusedRow, virtualItems]);
 
     const availableColumns = useMemo(
         () => allKeys.filter(k => !currentHeaders.includes(k)),
@@ -553,8 +317,6 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
 
     /* ------------------------------------------------------------- chrome */
 
-    const queryPlaceholder = 'Search, or field:value  |  where log.level in [ERROR, FATAL]  |  sort @timestamp desc';
-
     return (
         <div className="log-viewer" onKeyDown={handleKeyDown} tabIndex={0}>
             <div className="chrome">
@@ -570,70 +332,34 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                     >
                         <Icon.tail />Tail {tailMode ? 'ON' : 'OFF'}
                     </button>
-                    <button className="btn" onClick={copyAll}>
-                        {copyFeedback === -2 ? 'Copied' : 'Copy all JSON'}
-                    </button>
                 </div>
 
-                <div className="query-row">
-                    <textarea
-                        className="query-input"
-                        rows={1}
-                        spellCheck={false}
-                        placeholder={queryPlaceholder}
-                        value={queryText}
-                        onChange={e => setQueryText(e.target.value)}
-                    />
-                    {timestampKey && (
-                        <div className="field">
-                            <label htmlFor="time-from">From</label>
-                            <input id="time-from" type="datetime-local" value={timeFrom} onChange={e => setTimeFrom(e.target.value)} />
-                            <span className="divider" />
-                            <label htmlFor="time-to">To</label>
-                            <input id="time-to" type="datetime-local" value={timeTo} onChange={e => setTimeTo(e.target.value)} />
-                        </div>
-                    )}
-                    {(timeFrom || timeTo) && (
-                        <button className="btn" onClick={() => { setTimeFrom(''); setTimeTo(''); }}>Clear</button>
-                    )}
-                </div>
-
-                {parsed.errors.length > 0 ? (
-                    <div className="query-errors">
-                        {parsed.errors.map((message, i) => <span key={i}>{message}</span>)}
-                    </div>
-                ) : (
-                    <div className="query-hint">
-                        Stages: <code>| where field = value</code>, <code>| where field in [a, b]</code>, <code>| sort field desc</code>
-                    </div>
-                )}
-
-                <div className="tabs">
-                    <button className={tab === 'events' ? 'tab on' : 'tab'} onClick={() => setTab('events')}>
-                        Events <span className="count">{displayContent.length.toLocaleString()}</span>
-                    </button>
-                    <button className={tab === 'table' ? 'tab on' : 'tab'} onClick={() => setTab('table')}>
-                        Table
-                    </button>
-                    <span className="spacer" />
-                    <div className="tabs-aside">
-                        {sortField && (
-                            <span className="sort-note">Sorted by {sortField} {sortAsc ? '↑' : '↓'}</span>
-                        )}
-                        {tab === 'table' && availableColumns.length > 0 && (
-                            <select
-                                className="field"
-                                style={{ height: 28 }}
-                                value=""
-                                onChange={e => {
-                                    if (e.target.value) headerDispatch({ type: HeaderActionKind.ADD, header: e.target.value });
-                                }}
-                            >
-                                <option value="">+ Add column</option>
-                                {availableColumns.map(k => <option key={k} value={k}>{k}</option>)}
-                            </select>
+                <div className="search-row">
+                    <div className="field search">
+                        <Icon.search />
+                        <input
+                            type="text"
+                            spellCheck={false}
+                            placeholder="Search all fields, or field:value"
+                            value={searchText}
+                            onChange={e => setSearchText(e.target.value)}
+                        />
+                        {searchText && (
+                            <button className="clear" title="Clear search" onClick={() => setSearchText('')}><Icon.close /></button>
                         )}
                     </div>
+                    {availableColumns.length > 0 && (
+                        <select
+                            className="field"
+                            value=""
+                            onChange={e => {
+                                if (e.target.value) headerDispatch({ type: HeaderActionKind.ADD, header: e.target.value });
+                            }}
+                        >
+                            <option value="">+ Add column</option>
+                            {availableColumns.map(k => <option key={k} value={k}>{k}</option>)}
+                        </select>
+                    )}
                 </div>
             </div>
 
@@ -657,238 +383,142 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                     </span>
                 ))}
                 <span className="spacer" />
+                {sortColumn && (
+                    <span className="sort-note">Sorted by {sortColumn} {sortAscending ? '↑' : '↓'}</span>
+                )}
                 <span className="result-count">
                     Showing <b>{displayContent.length.toLocaleString()}</b> of {entries.length.toLocaleString()}
                 </span>
             </div>
 
-            <div className="workspace">
-                <div className="results">
-                    <HistogramChart entries={displayContent} timestampKey={timestampKey} levelKey={levelKey} />
-
-                    {displayContent.length === 0 ? (
-                        <div className="state">
-                            <Icon.noMatch />
-                            <div className="title">No entries match</div>
-                            <div className="detail">
-                                {entries.length.toLocaleString()} entries were read, but none survive the current
-                                query, filters and time range.
-                            </div>
-                            <div className="actions">
-                                {contentFilters.length > 0 && (
-                                    <button
-                                        className="btn primary"
-                                        onClick={() => contentFilters.forEach(f =>
-                                            filterDispatch({ filter: f, type: FilterActionKind.DELETE })
-                                        )}
-                                    >Clear filters</button>
-                                )}
-                                {queryText && <button className="btn" onClick={() => setQueryText('')}>Clear query</button>}
-                                {(timeFrom || timeTo) && (
-                                    <button className="btn" onClick={() => { setTimeFrom(''); setTimeTo(''); }}>
-                                        Reset time range
-                                    </button>
-                                )}
-                            </div>
+            <div className="results">
+                {displayContent.length === 0 ? (
+                    <div className="state">
+                        <Icon.noMatch />
+                        <div className="title">No entries match</div>
+                        <div className="detail">
+                            {entries.length.toLocaleString()} entries were read, but none survive the current
+                            search and filters.
                         </div>
-                    ) : tab === 'events' ? (
-                        <div className="events">
-                            <Virtuoso
-                                ref={listRef}
-                                style={{ height: '100%' }}
-                                data={displayContent}
-                                followOutput={tailMode ? 'smooth' : false}
-                                itemContent={(index, entry) => {
-                                    const stamp = timestampKey ? Date.parse(String(entry[timestampKey])) : NaN;
+                        <div className="actions">
+                            {contentFilters.length > 0 && (
+                                <button
+                                    className="btn primary"
+                                    onClick={() => contentFilters.forEach(f =>
+                                        filterDispatch({ filter: f, type: FilterActionKind.DELETE })
+                                    )}
+                                >Clear filters</button>
+                            )}
+                            {searchText && <button className="btn" onClick={() => setSearchText('')}>Clear search</button>}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="table-container">
+                        <TableVirtuoso
+                            ref={listRef}
+                            style={{ height: '100%' }}
+                            data={virtualItems}
+                            followOutput={tailMode ? 'smooth' : false}
+                            components={{
+                                Table: ({ style, ...props }: any) => (
+                                    <table {...props} className="log-table" style={{ ...style, tableLayout: 'fixed' }} />
+                                ),
+                                TableRow: ({ item, ...props }: any) => {
+                                    const isDetail = item?.kind === 'detail';
+                                    const isFocused = !isDetail && item?.idx === focusedRow;
                                     return (
-                                        <div
-                                            className={index === focusedRow ? 'event focused' : 'event'}
-                                            onClick={() => setFocusedRow(index)}
-                                            onDoubleClick={() => toggleRow(index)}
-                                        >
-                                            <div className="event-time">
-                                                {isNaN(stamp)
-                                                    ? <span>—</span>
-                                                    : <><span>{formatDay(stamp)}</span><span>{formatClock(stamp)}</span></>}
-                                            </div>
-                                            <div className="event-body">
-                                                <RawEvent entry={entry} term={parsed.search.term} levelKey={levelKey} />
-                                                {expandedRows.has(index) && (
-                                                    <EntryDetail
-                                                        entry={entry}
-                                                        copied={copyFeedback === index}
-                                                        onCopy={() => doCopy(entry, index)}
-                                                        onCollapse={() => toggleRow(index)}
-                                                        onInclude={(k, v) => addFilter(k, v, 'include')}
-                                                        onExclude={(k, v) => addFilter(k, v, 'exclude')}
-                                                    />
+                                        <tr
+                                            {...props}
+                                            className={[props.className, isDetail ? 'detail-row' : '', isFocused ? 'selected' : '']
+                                                .filter(Boolean).join(' ')}
+                                            onClick={!isDetail ? () => setFocusedRow(item?.idx ?? -1) : undefined}
+                                            onDoubleClick={!isDetail ? () => toggleRow(item?.idx ?? -1) : undefined}
+                                        />
+                                    );
+                                },
+                            }}
+                            fixedHeaderContent={() => (
+                                <tr>
+                                    {currentHeaders.map(header => (
+                                        <th key={header}>
+                                            <span
+                                                style={{ cursor: 'pointer' }}
+                                                onDoubleClick={() => columnSort(header)}
+                                                title="Double-click to sort"
+                                            >
+                                                {header}
+                                                {sortColumn === header && (
+                                                    <span className="sort-arrow">{sortAscending ? ' ▲' : ' ▼'}</span>
                                                 )}
-                                            </div>
-                                        </div>
-                                    );
-                                }}
-                            />
-                        </div>
-                    ) : (
-                        <div className="table-container">
-                            <TableVirtuoso
-                                ref={listRef}
-                                style={{ height: '100%' }}
-                                data={virtualItems}
-                                followOutput={tailMode ? 'smooth' : false}
-                                components={{
-                                    Table: ({ style, ...props }: any) => (
-                                        <table {...props} className="log-table" style={{ ...style, tableLayout: 'fixed' }} />
-                                    ),
-                                    TableRow: ({ item, ...props }: any) => {
-                                        const isDetail = item?.kind === 'detail';
-                                        const isFocused = !isDetail && item?.idx === focusedRow;
-                                        return (
-                                            <tr
-                                                {...props}
-                                                className={[props.className, isDetail ? 'detail-row' : '', isFocused ? 'selected' : '']
-                                                    .filter(Boolean).join(' ')}
-                                                onClick={!isDetail ? () => setFocusedRow(item?.idx ?? -1) : undefined}
-                                                onDoubleClick={!isDetail ? () => toggleRow(item?.idx ?? -1) : undefined}
-                                            />
-                                        );
-                                    },
-                                }}
-                                fixedHeaderContent={() => (
-                                    <tr>
-                                        {currentHeaders.map(header => (
-                                            <th key={header} style={columnWidths[header] ? { width: columnWidths[header] } : undefined}>
-                                                <span
-                                                    style={{ cursor: 'pointer' }}
-                                                    onDoubleClick={() => columnSort(header)}
-                                                    title="Double-click to sort"
-                                                >
-                                                    {header}
-                                                    {sortField === header && (
-                                                        <span className="sort-arrow">{sortAsc ? ' ▲' : ' ▼'}</span>
-                                                    )}
-                                                </span>
-                                                <span className="th-actions">
-                                                    <button
-                                                        className="th-btn"
-                                                        onClick={() => headerDispatch({ type: HeaderActionKind.SHIFT_LEFT, header })}
-                                                        title="Move left"
-                                                    ><Icon.left /></button>
-                                                    <button
-                                                        className="th-btn"
-                                                        onClick={() => headerDispatch({ type: HeaderActionKind.DELETE, header })}
-                                                        title="Remove column"
-                                                    ><Icon.close /></button>
-                                                </span>
-                                                <div className="resize-handle" onMouseDown={e => handleResizeStart(header, e)} />
-                                            </th>
-                                        ))}
-                                    </tr>
-                                )}
-                                itemContent={(_index, item) => {
-                                    if (item.kind === 'detail') {
-                                        return (
-                                            <td colSpan={currentHeaders.length}>
-                                                <div className="detail">
-                                                    <div className="detail-head">
-                                                        <span className="section-label">
-                                                            ENTRY · {Object.keys(item.entry).length} FIELDS
-                                                        </span>
-                                                        <span className="spacer" />
-                                                        <button className="btn small" onClick={() => doCopy(item.entry, item.idx)}>
-                                                            {copyFeedback === item.idx ? 'Copied' : 'Copy JSON'}
-                                                        </button>
-                                                        <button className="btn small" onClick={() => toggleRow(item.idx)}>Collapse</button>
-                                                    </div>
-                                                    <div className="detail-json">
-                                                        <JsonView
-                                                            src={item.entry}
-                                                            theme="default"
-                                                            collapsed={false}
-                                                            collapseStringsAfterLength={80}
-                                                            style={{ backgroundColor: 'transparent' }}
-                                                            customizeNode={param => {
-                                                                const node = param.node;
-                                                                if (typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') {
-                                                                    const key = param.indexOrName?.toString() ?? "";
-                                                                    return (
-                                                                        <span>
-                                                                            {String(node)}
-                                                                            <button
-                                                                                className="tweak"
-                                                                                onClick={e => { e.stopPropagation(); toggleColumn(key); }}
-                                                                                title={currentHeaders.includes(key) ? "Remove column" : "Add as column"}
-                                                                            >
-                                                                                {currentHeaders.includes(key) ? '−' : '＋'}
-                                                                            </button>
-                                                                        </span>
-                                                                    );
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        );
-                                    }
-
+                                            </span>
+                                            <span className="th-actions">
+                                                <button
+                                                    className="th-btn"
+                                                    onClick={() => headerDispatch({ type: HeaderActionKind.SHIFT_LEFT, header })}
+                                                    title="Move left"
+                                                ><Icon.left /></button>
+                                                <button
+                                                    className="th-btn"
+                                                    onClick={() => headerDispatch({ type: HeaderActionKind.DELETE, header })}
+                                                    title="Remove column"
+                                                ><Icon.close /></button>
+                                            </span>
+                                        </th>
+                                    ))}
+                                </tr>
+                            )}
+                            itemContent={(_index, item) => {
+                                if (item.kind === 'detail') {
                                     return (
-                                        <>
-                                            {currentHeaders.map(header => {
-                                                const text = formatCell(item.entry[header]);
-                                                const isLevel = header === levelKey;
-                                                const levelClass = isLevel ? getLevelClass(text) : '';
-                                                const isNumeric = typeof item.entry[header] === 'number';
-                                                return (
-                                                    <td
-                                                        key={header}
-                                                        className={isNumeric ? 'numeric' : undefined}
-                                                        style={columnWidths[header] ? { width: columnWidths[header] } : undefined}
-                                                        title={text}
-                                                    >
-                                                        <span className={levelClass || undefined}>{highlight(text, parsed.search.term)}</span>
-                                                        <span className="cell-actions">
-                                                            <button
-                                                                className="tweak"
-                                                                onClick={e => { e.stopPropagation(); addFilter(header, text, 'include'); }}
-                                                                title="Filter for this value"
-                                                            >＋</button>
-                                                            <button
-                                                                className="tweak"
-                                                                onClick={e => { e.stopPropagation(); addFilter(header, text, 'exclude'); }}
-                                                                title="Filter out this value"
-                                                            >−</button>
-                                                        </span>
-                                                    </td>
-                                                );
-                                            })}
-                                        </>
+                                        <td colSpan={currentHeaders.length}>
+                                            <EntryDetail
+                                                entry={item.entry}
+                                                columns={currentHeaders}
+                                                copied={copyFeedback === item.idx}
+                                                onCopy={() => doCopy(item.entry, item.idx)}
+                                                onCollapse={() => toggleRow(item.idx)}
+                                                onInclude={(k, v) => addFilter(k, v, 'include')}
+                                                onExclude={(k, v) => addFilter(k, v, 'exclude')}
+                                                onToggleColumn={toggleColumn}
+                                            />
+                                        </td>
                                     );
-                                }}
-                            />
-                        </div>
-                    )}
-                </div>
+                                }
 
-                {tab === 'events' && displayContent.length > 0 && (
-                    <FieldsPanel
-                        stats={fieldStats}
-                        selected={currentHeaders}
-                        onToggleColumn={toggleColumn}
-                        onIncludeValue={(key, value) => addFilter(key, value, 'include')}
-                    />
+                                return (
+                                    <>
+                                        {currentHeaders.map(header => {
+                                            const text = formatCell(item.entry[header]);
+                                            const isLevel = header === levelKey;
+                                            const levelClass = isLevel ? getLevelClass(text) : '';
+                                            const isNumeric = typeof item.entry[header] === 'number';
+                                            return (
+                                                <td key={header} className={isNumeric ? 'numeric' : undefined} title={text}>
+                                                    <span className={levelClass || undefined}>{highlight(text, search.term)}</span>
+                                                    <span className="cell-actions">
+                                                        <button
+                                                            className="tweak"
+                                                            onClick={e => { e.stopPropagation(); addFilter(header, text, 'include'); }}
+                                                            title="Filter for this value"
+                                                        >＋</button>
+                                                        <button
+                                                            className="tweak"
+                                                            onClick={e => { e.stopPropagation(); addFilter(header, text, 'exclude'); }}
+                                                            title="Filter out this value"
+                                                        >−</button>
+                                                    </span>
+                                                </td>
+                                            );
+                                        })}
+                                    </>
+                                );
+                            }}
+                        />
+                    </div>
                 )}
             </div>
 
-            <div className="status-bar">
-                <span>Total: {entries.length.toLocaleString()}</span>
-                <span>Showing: {displayContent.length.toLocaleString()}</span>
-                {skippedLines > 0 && <span>Skipped: {skippedLines} non-JSON lines</span>}
-                {timestampKey && <span>Time field: {timestampKey}</span>}
-                {sortField && <span>Sort: {sortField} {sortAsc ? '↑' : '↓'}</span>}
-                <span className="spacer" />
-                <span className="hint">↑↓ navigate · Enter expand · Esc collapse · ⌘C copy entry</span>
-            </div>
+            <div className="hint-bar">↑↓ navigate · Enter expand · Esc collapse · ⌘C copy entry · double-click header to sort</div>
         </div>
     );
 }
