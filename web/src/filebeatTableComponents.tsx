@@ -1,38 +1,25 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { TableVirtuoso } from 'react-virtuoso';
-import { LogEntry, ProcessedLogs } from "./customTypes";
+import { LINE, LogEntry, LogStore, RAW } from "./customTypes";
 import { HeaderActionKind, headerReducer } from "./headerReducer";
-import { Filter, FilterActionKind, filterReducer } from "./filter";
-import { copyToClipboard, detectColumns } from "./utils";
+import { applyFilters, Filter, FilterActionKind, filterReducer, FilterSpec } from "./filter";
+import { copyToClipboard, detectColumns, detectTimestampKey, formatCell, formatDelta, parseTimestamp } from "./utils";
 import { matchesSearch, parseSearch } from "./search";
+import { detectLevelKey, getLevelClass, levelRank } from "./levels";
+import { vscode } from "./vscode";
 
-const LEVEL_KEYS = ['log.level', 'level', 'severity', 'loglevel'];
+const DEFAULT_HEADERS = ["level", "message"];
+const LAYOUT_SAVE_DELAY_MS = 300;
 
-function getLevelClass(value: string): string {
-    switch (value.toUpperCase().trim()) {
-        case 'FATAL': case 'CRITICAL': case 'EMERGENCY': return 'level-fatal';
-        case 'ERROR': case 'ERR': return 'level-error';
-        case 'WARNING': case 'WARN': return 'level-warn';
-        case 'INFO': case 'INFORMATION': return 'level-info';
-        case 'DEBUG': case 'DBG': return 'level-debug';
-        case 'TRACE': case 'VERBOSE': return 'level-trace';
-        default: return '';
-    }
-}
-
-function detectLevelKey(allKeys: string[]): string | null {
-    const lookup = new Map(allKeys.map(k => [k.toLowerCase(), k]));
-    for (const candidate of LEVEL_KEYS) {
-        const hit = lookup.get(candidate);
-        if (hit) return hit;
-    }
-    return null;
-}
-
-function formatCell(val: unknown): string {
-    if (val === undefined || val === null) return "-";
-    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val);
-    return JSON.stringify(val);
+/** Everything about the view that is worth remembering per file. */
+export interface Layout {
+    headers: string[];
+    sortColumn: string | null;
+    sortAscending: boolean;
+    searchText: string;
+    filters: FilterSpec[];
+    tailMode: boolean;
+    showRaw: boolean;
 }
 
 /** Splits text on a search term so matches can be wrapped in <mark>. */
@@ -56,16 +43,20 @@ function highlight(text: string, term: string): React.ReactNode {
     return parts;
 }
 
+function lineOf(entry: LogEntry): number {
+    return entry[LINE] ?? -1;
+}
+
 /* ------------------------------------------------------------------ icons */
 
 const Icon = {
     search: () => (
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <circle cx="11" cy="11" r="7" /><path d="M20 20l-4-4" />
         </svg>
     ),
     file: () => (
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
             <path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" />
         </svg>
     ),
@@ -82,6 +73,11 @@ const Icon = {
     left: () => (
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
             <path d="M19 12H5M11 6l-6 6 6 6" />
+        </svg>
+    ),
+    open: () => (
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M19 14v6H5V6h6" />
         </svg>
     ),
     spinner: () => (
@@ -101,24 +97,47 @@ const Icon = {
     ),
 };
 
+/* ---------------------------------------------------------------- states */
+
+export function LoadingState() {
+    return (
+        <div className="log-viewer">
+            <div className="state">
+                <Icon.spinner />
+                <div className="title">Reading log file</div>
+                <div className="detail">Parsing entries and detecting columns.</div>
+                <div className="progress"><i /></div>
+            </div>
+        </div>
+    );
+}
+
 /* --------------------------------------------------------------- details */
 
-function EntryDetail({ entry, columns, copied, onCopy, onCollapse, onInclude, onExclude, onToggleColumn }: {
+function EntryDetail({ entry, columns, copied, onCopy, onCollapse, onReveal, onInclude, onExclude, onToggleColumn }: {
     entry: LogEntry;
     columns: string[];
     copied: boolean;
     onCopy: () => void;
     onCollapse: () => void;
+    onReveal: () => void;
     onInclude: (key: string, value: string) => void;
     onExclude: (key: string, value: string) => void;
     onToggleColumn: (key: string) => void;
 }) {
     const keys = Object.keys(entry);
+    const line = lineOf(entry);
     return (
         <div className="detail" onClick={e => e.stopPropagation()}>
             <div className="detail-head">
-                <span className="section-label">ENTRY · {keys.length} FIELDS</span>
+                <span className="section-label">{entry[RAW] ? 'PLAIN TEXT' : `${keys.length} FIELDS`}</span>
+                {line > 0 && <span className="line-badge">line {line}</span>}
                 <span className="spacer" />
+                {line > 0 && (
+                    <button className="btn small" onClick={onReveal} title="Show this line in the text editor">
+                        <Icon.open />Open in editor
+                    </button>
+                )}
                 <button className="btn small" onClick={onCopy}>{copied ? 'Copied' : 'Copy JSON'}</button>
                 <button className="btn small" onClick={onCollapse}>Collapse</button>
             </div>
@@ -151,39 +170,72 @@ function EntryDetail({ entry, columns, copied, onCopy, onCollapse, onInclude, on
 
 /* ------------------------------------------------------------------ main */
 
-type VirtualItem =
-    | { kind: 'row'; entry: LogEntry; idx: number }
-    | { kind: 'detail'; entry: LogEntry; idx: number };
+interface VirtualItem {
+    kind: 'row' | 'detail';
+    entry: LogEntry;
+    /** Position in the filtered list, for delta and keyboard navigation. */
+    idx: number;
+    line: number;
+}
 
-export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: boolean }) {
-    const { entries, skippedLines, allKeys } = data;
-    const [currentHeaders, headerDispatch] = useReducer(headerReducer, ["level", "message"]);
-    const [contentFilters, filterDispatch] = useReducer(filterReducer, [] as Filter[]);
-    const [sortColumn, setSortColumn] = useState<string | null>(null);
-    const [sortAscending, setSortAscending] = useState(true);
-    const [searchText, setSearchText] = useState('');
-    const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-    const [focusedRow, setFocusedRow] = useState(-1);
-    const [tailMode, setTailMode] = useState(false);
-    const [columnsDetected, setColumnsDetected] = useState(false);
-    const [copyFeedback, setCopyFeedback] = useState<number | null>(null);
+interface LevelCount {
+    value: string;
+    count: number;
+}
+
+export function LogTable({ data, initialLayout }: { data: LogStore; initialLayout?: Partial<Layout> }) {
+    const { entries, allKeys, rawCount } = data;
+
+    const [currentHeaders, headerDispatch] = useReducer(headerReducer, initialLayout?.headers ?? DEFAULT_HEADERS);
+    const [columnsDetected, setColumnsDetected] = useState(Boolean(initialLayout?.headers?.length));
+    const [filters, filterDispatch] = useReducer(filterReducer, initialLayout?.filters, specs => (specs ?? []).map(Filter.from));
+    const [sortColumn, setSortColumn] = useState<string | null>(initialLayout?.sortColumn ?? null);
+    const [sortAscending, setSortAscending] = useState(initialLayout?.sortAscending ?? true);
+    const [searchText, setSearchText] = useState(initialLayout?.searchText ?? '');
+    const [tailMode, setTailMode] = useState(initialLayout?.tailMode ?? false);
+    const [showRaw, setShowRaw] = useState(initialLayout?.showRaw ?? true);
+
+    const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+    const [focusedLine, setFocusedLine] = useState<number | null>(null);
+    const [copiedLine, setCopiedLine] = useState<number | null>(null);
 
     const listRef = useRef<any>(null);
+    const scrollToFocusRef = useRef(false);
+
+    /* ------------------------------------------------------------ derive */
 
     const levelKey = useMemo(() => detectLevelKey(allKeys), [allKeys]);
+    const timestampKey = useMemo(() => detectTimestampKey(entries), [entries]);
 
     useEffect(() => {
         if (entries.length > 0 && !columnsDetected) {
-            headerDispatch({ type: HeaderActionKind.SET, headers: detectColumns(entries) });
+            const sample = entries.filter(entry => !entry[RAW]).slice(0, 100);
+            headerDispatch({ type: HeaderActionKind.SET, headers: detectColumns(sample) });
             setColumnsDetected(true);
         }
     }, [entries, columnsDetected]);
 
-    const search = useMemo(() => parseSearch(searchText), [searchText]);
+    useEffect(() => {
+        const layout: Layout = {
+            headers: currentHeaders,
+            sortColumn,
+            sortAscending,
+            searchText,
+            filters: filters.map(f => f.toJSON()),
+            tailMode,
+            showRaw,
+        };
+        const timer = setTimeout(() => vscode.postMessage({ command: 'saveLayout', layout }), LAYOUT_SAVE_DELAY_MS);
+        return () => clearTimeout(timer);
+    }, [currentHeaders, sortColumn, sortAscending, searchText, filters, tailMode, showRaw]);
+
+    // Typing stays responsive; the filter catches up a frame later.
+    const deferredSearch = useDeferredValue(searchText);
+    const search = useMemo(() => parseSearch(deferredSearch), [deferredSearch]);
 
     const displayContent = useMemo(() => {
         let result = entries.filter(entry =>
-            contentFilters.every(f => f.isValid(entry)) && matchesSearch(entry, search)
+            (showRaw || !entry[RAW]) && applyFilters(entry, filters) && matchesSearch(entry, search)
         );
 
         if (sortColumn !== null) {
@@ -198,41 +250,86 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
             });
         }
         return result;
-    }, [entries, contentFilters, search, sortColumn, sortAscending]);
+    }, [entries, filters, search, sortColumn, sortAscending, showRaw]);
+
+    const levelCounts = useMemo<LevelCount[]>(() => {
+        if (!levelKey) return [];
+        const counts = new Map<string, number>();
+        for (const entry of entries) {
+            if (entry[RAW]) continue;
+            const value = entry[levelKey];
+            if (value === undefined || value === null) continue;
+            const text = String(value);
+            counts.set(text, (counts.get(text) ?? 0) + 1);
+        }
+        return Array.from(counts.entries())
+            .map(([value, count]) => ({ value, count }))
+            .sort((a, b) => levelRank(a.value) - levelRank(b.value) || b.count - a.count);
+    }, [entries, levelKey]);
 
     const virtualItems = useMemo(() => {
         const items: VirtualItem[] = [];
-        displayContent.forEach((entry, i) => {
-            items.push({ kind: 'row', entry, idx: i });
-            if (expandedRows.has(i)) items.push({ kind: 'detail', entry, idx: i });
+        displayContent.forEach((entry, idx) => {
+            const line = lineOf(entry);
+            items.push({ kind: 'row', entry, idx, line });
+            if (expanded.has(line)) items.push({ kind: 'detail', entry, idx, line });
         });
         return items;
-    }, [displayContent, expandedRows]);
+    }, [displayContent, expanded]);
 
-    const tailTarget = virtualItems.length - 1;
+    const availableColumns = useMemo(
+        () => allKeys.filter(k => !currentHeaders.includes(k)),
+        [allKeys, currentHeaders]
+    );
+
+    // Gaps only mean something in file order or when sorted by time.
+    const showDelta = timestampKey !== null && (sortColumn === null || sortColumn === timestampKey);
+
+    /* ----------------------------------------------------------- effects */
+
     useEffect(() => {
-        if (tailMode && tailTarget >= 0) {
-            listRef.current?.scrollToIndex({ index: tailTarget, behavior: 'smooth' });
+        if (tailMode && virtualItems.length > 0) {
+            listRef.current?.scrollToIndex({ index: virtualItems.length - 1, behavior: 'smooth' });
         }
-    }, [tailMode, tailTarget]);
+    }, [tailMode, virtualItems.length]);
 
-    const toggleRow = useCallback((idx: number) => {
-        setExpandedRows(prev => {
+    useEffect(() => {
+        if (focusedLine === null || !scrollToFocusRef.current) return;
+        scrollToFocusRef.current = false;
+        const index = virtualItems.findIndex(v => v.kind === 'row' && v.line === focusedLine);
+        if (index >= 0) listRef.current?.scrollToIndex({ index, align: 'center' });
+    }, [focusedLine, virtualItems]);
+
+    /* ---------------------------------------------------------- handlers */
+
+    const toggleRow = useCallback((line: number) => {
+        setExpanded(prev => {
             const next = new Set(prev);
-            if (next.has(idx)) next.delete(idx); else next.add(idx);
+            if (next.has(line)) next.delete(line); else next.add(line);
             return next;
         });
     }, []);
 
-    const doCopy = useCallback((entry: LogEntry, idx: number) => {
-        copyToClipboard(JSON.stringify(entry, null, 2));
-        setCopyFeedback(idx);
-        setTimeout(() => setCopyFeedback(null), 1500);
+    const doCopy = useCallback((entry: LogEntry) => {
+        copyToClipboard(entry[RAW] ? String(entry.message) : JSON.stringify(entry, null, 2));
+        setCopiedLine(lineOf(entry));
+        setTimeout(() => setCopiedLine(null), 1500);
+    }, []);
+
+    const reveal = useCallback((line: number) => {
+        if (line > 0) vscode.postMessage({ command: 'reveal', line });
     }, []);
 
     const addFilter = useCallback((key: string, value: string, option: 'include' | 'exclude') => {
-        filterDispatch({ filter: new Filter(key, value, option), type: FilterActionKind.ADD });
+        filterDispatch({ type: FilterActionKind.ADD, filter: new Filter(key, value, option) });
     }, []);
+
+    const toggleLevel = useCallback((value: string) => {
+        if (!levelKey) return;
+        const active = filters.find(f => f.option === 'include' && f.key === levelKey && f.value === value);
+        if (active) filterDispatch({ type: FilterActionKind.DELETE, filter: active });
+        else filterDispatch({ type: FilterActionKind.ADD, filter: new Filter(levelKey, value, 'include') });
+    }, [filters, levelKey]);
 
     const toggleColumn = useCallback((key: string) => {
         headerDispatch({
@@ -249,65 +346,50 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         const tag = (e.target as HTMLElement).tagName;
         if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+        if (displayContent.length === 0) return;
+
+        const current = focusedLine === null ? -1 : displayContent.findIndex(entry => lineOf(entry) === focusedLine);
+        const focusAt = (idx: number) => {
+            scrollToFocusRef.current = true;
+            setFocusedLine(lineOf(displayContent[idx]));
+        };
 
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setFocusedRow(prev => Math.min(prev + 1, displayContent.length - 1));
+            focusAt(Math.min(current + 1, displayContent.length - 1));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setFocusedRow(prev => Math.max(prev - 1, 0));
-        } else if (e.key === 'Enter' && focusedRow >= 0) {
+            focusAt(Math.max(current - 1, 0));
+        } else if (e.key === 'Enter' && focusedLine !== null) {
             e.preventDefault();
-            toggleRow(focusedRow);
-        } else if (e.key === 'Escape' && focusedRow >= 0) {
+            toggleRow(focusedLine);
+        } else if (e.key === 'Escape' && focusedLine !== null) {
             e.preventDefault();
-            setExpandedRows(prev => {
-                if (!prev.has(focusedRow)) return prev;
+            setExpanded(prev => {
+                if (!prev.has(focusedLine)) return prev;
                 const next = new Set(prev);
-                next.delete(focusedRow);
+                next.delete(focusedLine);
                 return next;
             });
-        } else if (e.key === 'c' && (e.ctrlKey || e.metaKey) && focusedRow >= 0 && focusedRow < displayContent.length) {
+        } else if (e.key === 'c' && (e.ctrlKey || e.metaKey) && current >= 0) {
             e.preventDefault();
-            doCopy(displayContent[focusedRow], focusedRow);
+            doCopy(displayContent[current]);
+        } else if (e.key === 'o' && focusedLine !== null) {
+            e.preventDefault();
+            reveal(focusedLine);
         }
-    }, [focusedRow, displayContent, toggleRow, doCopy]);
+    }, [focusedLine, displayContent, toggleRow, doCopy, reveal]);
 
-    useEffect(() => {
-        if (focusedRow < 0) return;
-        const index = virtualItems.findIndex(v => v.kind === 'row' && v.idx === focusedRow);
-        if (index >= 0) listRef.current?.scrollToIndex({ index, align: 'center' });
-    }, [focusedRow, virtualItems]);
-
-    const availableColumns = useMemo(
-        () => allKeys.filter(k => !currentHeaders.includes(k)),
-        [allKeys, currentHeaders]
-    );
-
-    /* ------------------------------------------------------------- states */
-
-    if (isLoading) {
-        return (
-            <div className="log-viewer">
-                <div className="state">
-                    <Icon.spinner />
-                    <div className="title">Reading log file</div>
-                    <div className="detail">Parsing entries and detecting columns.</div>
-                    <div className="progress"><i /></div>
-                </div>
-            </div>
-        );
-    }
+    /* ------------------------------------------------------------ render */
 
     if (entries.length === 0) {
         return (
             <div className="log-viewer">
                 <div className="state">
                     <Icon.emptyFile />
-                    <div className="title">No JSON log entries found</div>
+                    <div className="title">Nothing to show yet</div>
                     <div className="detail">
-                        This viewer expects one JSON object per line.
-                        {skippedLines > 0 && ` None of the ${skippedLines} lines in this file parsed.`}
+                        This file is empty. New lines will appear here as they are written.
                     </div>
                     <div className="sample">{'{"@timestamp":"…","log.level":"INFO","message":"…"}'}</div>
                 </div>
@@ -315,22 +397,61 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
         );
     }
 
-    /* ------------------------------------------------------------- chrome */
+    const isLevelActive = (value: string) =>
+        filters.some(f => f.option === 'include' && f.key === levelKey && f.value === value);
+
+    const renderCell = (item: VirtualItem, header: string) => {
+        const value = item.entry[header];
+        const text = formatCell(value);
+        const isLevel = header === levelKey;
+        const levelClass = isLevel ? getLevelClass(text) : '';
+        const isNumeric = typeof value === 'number';
+
+        let delta: React.ReactNode = null;
+        if (showDelta && header === timestampKey && item.idx > 0) {
+            const now = parseTimestamp(value);
+            const before = parseTimestamp(displayContent[item.idx - 1][timestampKey!]);
+            if (!isNaN(now) && !isNaN(before)) {
+                delta = <span className="delta">{formatDelta(now - before)}</span>;
+            }
+        }
+
+        return (
+            <td key={header} className={isNumeric ? 'numeric' : undefined} title={text}>
+                {levelClass
+                    ? <span className={`level-badge ${levelClass}`}>{highlight(text, search.term)}</span>
+                    : <span>{highlight(text, search.term)}</span>}
+                {delta}
+                <span className="cell-actions">
+                    <button
+                        className="tweak"
+                        onClick={e => { e.stopPropagation(); addFilter(header, text, 'include'); }}
+                        title="Filter for this value"
+                    >＋</button>
+                    <button
+                        className="tweak"
+                        onClick={e => { e.stopPropagation(); addFilter(header, text, 'exclude'); }}
+                        title="Filter out this value"
+                    >−</button>
+                </span>
+            </td>
+        );
+    };
 
     return (
         <div className="log-viewer" onKeyDown={handleKeyDown} tabIndex={0}>
-            <div className="chrome">
+            <header className="chrome">
                 <div className="chrome-top">
                     <span className="product">JSON Log Viewer</span>
-                    <span className="chip mono"><Icon.file />{entries.length.toLocaleString()} entries</span>
-                    {skippedLines > 0 && <span className="source-note">{skippedLines} non-JSON lines skipped</span>}
+                    <span className="meta"><Icon.file />{entries.length.toLocaleString()} entries</span>
+                    {rawCount > 0 && <span className="meta soft">{rawCount.toLocaleString()} plain-text</span>}
                     <span className="spacer" />
                     <button
                         className={tailMode ? 'btn on' : 'btn'}
                         onClick={() => setTailMode(t => !t)}
-                        title="Auto-scroll to latest entries"
+                        title="Follow new entries as they arrive"
                     >
-                        <Icon.tail />Tail {tailMode ? 'ON' : 'OFF'}
+                        <Icon.tail />Tail {tailMode ? 'on' : 'off'}
                     </button>
                 </div>
 
@@ -361,33 +482,62 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                         </select>
                     )}
                 </div>
-            </div>
+
+                {levelCounts.length > 0 && (
+                    <div className="levels-row">
+                        {levelCounts.map(({ value, count }) => (
+                            <button
+                                key={value}
+                                className={isLevelActive(value) ? 'level-chip on' : 'level-chip'}
+                                onClick={() => toggleLevel(value)}
+                                title={isLevelActive(value) ? `Stop filtering to ${value}` : `Show only ${value}`}
+                            >
+                                <i className={getLevelClass(value) || 'level-other'} />
+                                {value}
+                                <b>{count.toLocaleString()}</b>
+                            </button>
+                        ))}
+                        <span className="spacer" />
+                        {sortColumn && (
+                            <span className="sort-note">Sorted by {sortColumn} {sortAscending ? '↑' : '↓'}</span>
+                        )}
+                    </div>
+                )}
+            </header>
 
             <div className="filter-bar">
                 <span className="section-label">FILTERS</span>
-                {contentFilters.length === 0 && (
-                    <span className="chip" style={{ borderStyle: 'dashed', color: 'var(--ink-3)' }}>
-                        None — use ＋ / − on any value
-                    </span>
+                {filters.length === 0 && (
+                    <span className="chip ghost">None — use ＋ / − on any value</span>
                 )}
-                {contentFilters.map(f => (
+                {filters.map(f => (
                     <span key={`${f.key}:${f.option}:${f.value}`} className="chip">
                         <span className={f.option === 'exclude' ? 'op exclude' : 'op include'}>
                             {f.option === 'exclude' ? '≠' : '='}
                         </span>
-                        {f.key}: {f.value}
+                        <span className="chip-key">{f.key}</span>
+                        <span className="chip-value">{f.value}</span>
                         <button
-                            onClick={() => filterDispatch({ filter: f, type: FilterActionKind.DELETE })}
+                            onClick={() => filterDispatch({ type: FilterActionKind.DELETE, filter: f })}
                             title="Remove filter"
                         ><Icon.close /></button>
                     </span>
                 ))}
+                {filters.length > 1 && (
+                    <button className="link" onClick={() => filterDispatch({ type: FilterActionKind.CLEAR })}>Clear all</button>
+                )}
                 <span className="spacer" />
-                {sortColumn && (
-                    <span className="sort-note">Sorted by {sortColumn} {sortAscending ? '↑' : '↓'}</span>
+                {rawCount > 0 && (
+                    <button
+                        className={showRaw ? 'toggle on' : 'toggle'}
+                        onClick={() => setShowRaw(s => !s)}
+                        title="Show or hide lines that are not JSON"
+                    >
+                        <i />Plain text
+                    </button>
                 )}
                 <span className="result-count">
-                    Showing <b>{displayContent.length.toLocaleString()}</b> of {entries.length.toLocaleString()}
+                    <b>{displayContent.length.toLocaleString()}</b> of {entries.length.toLocaleString()}
                 </span>
             </div>
 
@@ -401,15 +551,15 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                             search and filters.
                         </div>
                         <div className="actions">
-                            {contentFilters.length > 0 && (
-                                <button
-                                    className="btn primary"
-                                    onClick={() => contentFilters.forEach(f =>
-                                        filterDispatch({ filter: f, type: FilterActionKind.DELETE })
-                                    )}
-                                >Clear filters</button>
+                            {filters.length > 0 && (
+                                <button className="btn primary" onClick={() => filterDispatch({ type: FilterActionKind.CLEAR })}>
+                                    Clear filters
+                                </button>
                             )}
                             {searchText && <button className="btn" onClick={() => setSearchText('')}>Clear search</button>}
+                            {!showRaw && rawCount > 0 && (
+                                <button className="btn" onClick={() => setShowRaw(true)}>Show plain text</button>
+                            )}
                         </div>
                     </div>
                 ) : (
@@ -418,6 +568,7 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                             ref={listRef}
                             style={{ height: '100%' }}
                             data={virtualItems}
+                            computeItemKey={(_index, item) => `${item.kind}:${item.line}`}
                             followOutput={tailMode ? 'smooth' : false}
                             components={{
                                 Table: ({ style, ...props }: any) => (
@@ -425,14 +576,19 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                                 ),
                                 TableRow: ({ item, ...props }: any) => {
                                     const isDetail = item?.kind === 'detail';
-                                    const isFocused = !isDetail && item?.idx === focusedRow;
+                                    const isRaw = Boolean(item?.entry?.[RAW]);
+                                    const isFocused = !isDetail && item?.line === focusedLine;
                                     return (
                                         <tr
                                             {...props}
-                                            className={[props.className, isDetail ? 'detail-row' : '', isFocused ? 'selected' : '']
-                                                .filter(Boolean).join(' ')}
-                                            onClick={!isDetail ? () => setFocusedRow(item?.idx ?? -1) : undefined}
-                                            onDoubleClick={!isDetail ? () => toggleRow(item?.idx ?? -1) : undefined}
+                                            className={[
+                                                props.className,
+                                                isDetail ? 'detail-row' : '',
+                                                isRaw && !isDetail ? 'raw-row' : '',
+                                                isFocused ? 'selected' : '',
+                                            ].filter(Boolean).join(' ')}
+                                            onClick={!isDetail ? () => setFocusedLine(item?.line ?? null) : undefined}
+                                            onDoubleClick={!isDetail ? () => toggleRow(item?.line ?? -1) : undefined}
                                         />
                                     );
                                 },
@@ -442,7 +598,7 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                                     {currentHeaders.map(header => (
                                         <th key={header}>
                                             <span
-                                                style={{ cursor: 'pointer' }}
+                                                className="th-label"
                                                 onDoubleClick={() => columnSort(header)}
                                                 title="Double-click to sort"
                                             >
@@ -474,9 +630,10 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                                             <EntryDetail
                                                 entry={item.entry}
                                                 columns={currentHeaders}
-                                                copied={copyFeedback === item.idx}
-                                                onCopy={() => doCopy(item.entry, item.idx)}
-                                                onCollapse={() => toggleRow(item.idx)}
+                                                copied={copiedLine === item.line}
+                                                onCopy={() => doCopy(item.entry)}
+                                                onCollapse={() => toggleRow(item.line)}
+                                                onReveal={() => reveal(item.line)}
                                                 onInclude={(k, v) => addFilter(k, v, 'include')}
                                                 onExclude={(k, v) => addFilter(k, v, 'exclude')}
                                                 onToggleColumn={toggleColumn}
@@ -485,40 +642,31 @@ export function LogTable({ data, isLoading }: { data: ProcessedLogs; isLoading: 
                                     );
                                 }
 
-                                return (
-                                    <>
-                                        {currentHeaders.map(header => {
-                                            const text = formatCell(item.entry[header]);
-                                            const isLevel = header === levelKey;
-                                            const levelClass = isLevel ? getLevelClass(text) : '';
-                                            const isNumeric = typeof item.entry[header] === 'number';
-                                            return (
-                                                <td key={header} className={isNumeric ? 'numeric' : undefined} title={text}>
-                                                    <span className={levelClass || undefined}>{highlight(text, search.term)}</span>
-                                                    <span className="cell-actions">
-                                                        <button
-                                                            className="tweak"
-                                                            onClick={e => { e.stopPropagation(); addFilter(header, text, 'include'); }}
-                                                            title="Filter for this value"
-                                                        >＋</button>
-                                                        <button
-                                                            className="tweak"
-                                                            onClick={e => { e.stopPropagation(); addFilter(header, text, 'exclude'); }}
-                                                            title="Filter out this value"
-                                                        >−</button>
-                                                    </span>
-                                                </td>
-                                            );
-                                        })}
-                                    </>
-                                );
+                                if (item.entry[RAW]) {
+                                    const text = String(item.entry.message ?? '');
+                                    return (
+                                        <td colSpan={currentHeaders.length} className="raw-cell" title={text}>
+                                            <span className="raw-tag">txt</span>
+                                            {highlight(text, search.term)}
+                                        </td>
+                                    );
+                                }
+
+                                return <>{currentHeaders.map(header => renderCell(item, header))}</>;
                             }}
                         />
                     </div>
                 )}
             </div>
 
-            <div className="hint-bar">↑↓ navigate · Enter expand · Esc collapse · ⌘C copy entry · double-click header to sort</div>
+            <footer className="hint-bar">
+                <span>↑↓ move</span>
+                <span>Enter expand</span>
+                <span>Esc collapse</span>
+                <span>O open in editor</span>
+                <span>⌘C copy</span>
+                <span>double-click a header to sort</span>
+            </footer>
         </div>
     );
 }

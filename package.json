@@ -22,18 +22,37 @@
     "commands": [
       {
         "command": "logviewer.jsonview",
-        "title": "JSON Log viewer"
+        "title": "Open in JSON Log Viewer"
       }
     ],
     "menus": {
       "editor/context": [
         {
-          "when": "resourceLangId == log",
+          "when": "resourceLangId == log || resourceExtname =~ /\\.(log|jsonl|ndjson|json|txt)$/",
+          "group": "navigation",
+          "command": "logviewer.jsonview"
+        }
+      ],
+      "explorer/context": [
+        {
+          "when": "resourceLangId == log || resourceExtname =~ /\\.(log|jsonl|ndjson|json|txt)$/",
           "group": "navigation",
           "command": "logviewer.jsonview"
         }
       ]
-    }
+    },
+    "customEditors": [
+      {
+        "viewType": "logviewer.jsonLog",
+        "displayName": "JSON Log Viewer",
+        "selector": [
+          { "filenamePattern": "*.jsonl" },
+          { "filenamePattern": "*.ndjson" },
+          { "filenamePattern": "*.log" }
+        ],
+        "priority": "option"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

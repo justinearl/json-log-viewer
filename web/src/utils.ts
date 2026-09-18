@@ -20,6 +20,13 @@ export function flattenMap(nested: LogEntry, prefix: string = ''): LogEntry {
     return flatMap;
 }
 
+/** The text a value shows as in a cell. Filters compare against this too. */
+export function formatCell(val: unknown): string {
+    if (val === undefined || val === null) return "-";
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') return String(val);
+    return JSON.stringify(val);
+}
+
 const PRIORITY_KEYS = [
     "@timestamp", "timestamp", "time", "date", "datetime",
     "level", "log.level", "severity", "loglevel",
@@ -57,6 +64,62 @@ export function detectColumns(entries: LogEntry[], maxScan: number = 100): strin
 
     const result = [...prioritized, ...remaining];
     return result.length > 0 ? result.slice(0, 6) : ["level", "message"];
+}
+
+const TIMESTAMP_KEYS = ["@timestamp", "timestamp", "time", "date", "datetime", "created_at", "ts"];
+
+/**
+ * Epoch milliseconds for a timestamp value, or NaN. Accepts what Date.parse
+ * does plus the common forms it rejects: a comma before the milliseconds
+ * ("2024-09-10 11:04:38,623", Python logging) and epoch seconds or millis.
+ */
+export function parseTimestamp(value: unknown): number {
+    if (typeof value === 'number') return value < 1e11 ? value * 1000 : value;
+    if (typeof value !== 'string') return NaN;
+
+    const text = value.trim();
+    if (/^\d{10}(\.\d+)?$/.test(text)) return Number(text) * 1000;
+    if (/^\d{13}$/.test(text)) return Number(text);
+
+    const direct = Date.parse(text);
+    if (!isNaN(direct)) return direct;
+
+    const normalised = text.replace(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2}),(\d{1,6})/, '$1T$2.$3');
+    return normalised === text ? NaN : Date.parse(normalised);
+}
+
+export function detectTimestampKey(entries: LogEntry[], maxScan: number = 20): string | null {
+    const scanCount = Math.min(entries.length, maxScan);
+    if (scanCount === 0) return null;
+
+    for (const key of TIMESTAMP_KEYS) {
+        let matches = 0;
+        for (let i = 0; i < scanCount; i++) {
+            const val = entries[i][key];
+            if (val !== undefined && !isNaN(parseTimestamp(val))) {
+                matches++;
+            }
+        }
+        if (matches > scanCount * 0.5) return key;
+    }
+
+    return null;
+}
+
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** Gap between two timestamps, e.g. "+12ms", "+1.5s", "+3m 4s", "-2h 10m". */
+export function formatDelta(ms: number): string {
+    const sign = ms < 0 ? '-' : '+';
+    const abs = Math.abs(ms);
+    if (abs < SECOND) return `${sign}${Math.round(abs)}ms`;
+    if (abs < MINUTE) return `${sign}${(abs / SECOND).toFixed(abs < 10 * SECOND ? 2 : 1)}s`;
+    if (abs < HOUR) return `${sign}${Math.floor(abs / MINUTE)}m ${Math.round((abs % MINUTE) / SECOND)}s`;
+    if (abs < DAY) return `${sign}${Math.floor(abs / HOUR)}h ${Math.round((abs % HOUR) / MINUTE)}m`;
+    return `${sign}${(abs / DAY).toFixed(1)}d`;
 }
 
 export function copyToClipboard(text: string): void {

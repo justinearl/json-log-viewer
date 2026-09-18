@@ -39,6 +39,11 @@ jobs:
           env:
             OVSX_PAT: ${{ secrets.OVSX_PAT }}
           run: npx ovsx publish *.vsix
+        - name: Publish to VS Code Marketplace
+          env:
+            VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          if: env.VSCE_PAT != ''
+          run: npx vsce publish --packagePath *.vsix
         - name: Release
           uses: softprops/action-gh-release@v2
           with:

@@ -29,14 +29,17 @@ code --install-extension logviewer-latest.vsix
 
 ## Features
 
-- Run command by pressing `Ctrl` + `Shift` + `P` and Type `JSON Log viewer`
+- Open a file from the explorer or editor context menu (`Open in JSON Log Viewer`), from the command palette, or with `Open With… > JSON Log Viewer` on `.log`, `.jsonl` and `.ndjson` files
+- Follows the file as it grows: only new lines are read, and Tail mode keeps the newest entry in view
 - Search all fields, or one field with `field:value`
+- Click a level chip (ERROR, WARN, INFO, …) to show only those entries
 - Filter for or against a value with the `+` / `-` buttons on any cell
 - Sort by any column by double clicking on a header
-- Expand a row (double click or `Enter`) to see every field, copy it as JSON, or add a field as a column
+- Time gaps between consecutive entries are shown next to the timestamp
+- Lines that are not JSON (stack traces, plain text) are kept as plain-text rows and can be hidden
+- Expand a row (double click or `Enter`) to see every field, copy it as JSON, add a field as a column, or open that line in the text editor (`O`)
 - Add, remove and reorder columns
-- Tail mode to follow new entries
-- Immediately reflect changes on log file
+- Columns, sort, search and filters are remembered per file
 
 ## Development
 
